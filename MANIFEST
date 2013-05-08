@@ -1,0 +1,6 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/Parallel-DataPipe.t
+lib/Parallel/DataPipe.pm
