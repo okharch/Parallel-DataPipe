@@ -40,8 +40,9 @@ Parallel::DataPipe::run {
     process_data => sub { $_ },
     merge_data => sub { push @processed_data, $_; },
 };
-ok(@data==@processed_data,'length of big data');
-ok(grep($_->[0] eq $large_data_buf,@processed_data) == @data,"processed big data values");
+my $big = sprintf("big(%dk)",$large_data_size/1024);
+ok(@data==@processed_data,"length of $big data");
+ok(grep($_->[0] eq $large_data_buf,@processed_data) == @data,"processed $big data values");
 ok(zombies() == 0,'no zombies');
 
 
