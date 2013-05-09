@@ -216,5 +216,8 @@ sub max_buf_size { my $d = shift;
     my ($memtotal,$memused) = map m{Mem:\s+(\d+)\s+(\d+)}, `free -b`;
     my $free = defined($memtotal)?$memtotal-$memused:64*$mb;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
-    return $free / $d;
+    my $r = $free / $d;
+    # put reasonable limit for max buf size
+    $r = 256 * $mb if $r > 256 * $mb;
+    return $r;
 }
