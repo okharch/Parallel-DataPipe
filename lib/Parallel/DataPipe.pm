@@ -292,6 +292,11 @@ use Storable qw(freeze thaw);
 use IO::Select;
 use POSIX ":sys_wait_h";
 
+for tests:
+use Test::More tests => 21;
+use Time::HiRes qw(time);
+
+
 if found it uses Sereal module for serialization instead of Storable as it is more efficient.
 
 =head1 BUGS 
