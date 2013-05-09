@@ -262,11 +262,14 @@ process_data - reference to subroutine which process data items. they are passed
     use any shared resources inside it.
     Also you can update children state, but it will not affect parent state.
 
-processor_number - (optional) number of parallel data processors. if you don't specify, it tries to find out a number of cpu cores
+processor_number - (optional) number of parallel data processors. if you don't specify,
+    it tries to find out a number of cpu cores
 	and create the same number of data processor children.
-    It makes sense to have explicit processor_number which possibly is greater then cpu cores number
-    if you are to use all slave DB servers in your environment and making query to DB servers takes more time
-    then processing returned data.
+    It makes sense to have explicit processor_number
+    which possibly is greater then cpu cores number
+    if you are to use all slave DB servers in your environment 
+    and making query to DB servers takes more time then processing returned data.
+    Otherwise it's optimal to have processor_number equal to physical number of cores.
 
 merge_data - reference to a subroutine which receives data item which was processed  in $_ and now going to be merged
 	this subroutine is executed in parent thread, so you can rely on changes that it made after process_data completion.
