@@ -9,7 +9,6 @@ use Storable qw(freeze thaw);
 use IO::Select;
 use POSIX ":sys_wait_h";
 use constant _EOF_ => (-(2 << 31)+1);
-use Carp;
 
 {
     # this works correct only in unix/linux environment. cygwin as well.
@@ -70,6 +69,7 @@ sub _put_data { my ($fh,$data) = @_;
 
 sub _create_data_processors {
     my ($process_data,$processor_number) = @_;
+    die "process_data parameter should be code ref" unless ref($process_data) eq 'CODE';
     my @processors;
     # each processor has these fields:
     # pid - needed to kill processor when there is no more data to process
@@ -99,7 +99,7 @@ sub _create_data_processors {
             $pid = fork();
             unless (defined $pid) {
                 #print "say goodbye - can't fork!\n"; <>;
-                confess "can't fork($i)!";
+                die "can't fork($i)!";
             }
             if ($pid == 0) {
                 # processor is eternal loop which wait for raw data on pipe from main
@@ -167,7 +167,7 @@ sub _kill_data_processors {
 sub _get_input_iterator {
     my $input_iterator = shift;
     unless (ref($input_iterator) eq 'CODE') {
-        confess "array or code reference expected for input_iterator iterator" unless ref($input_iterator) eq 'ARRAY';
+        die "array or code reference expected for input_iterator" unless ref($input_iterator) eq 'ARRAY';
         my $array = $input_iterator;
         my $l = @$array;
         my $i = 0;
@@ -181,7 +181,7 @@ sub run {
     
     # $input_iterator is either array or subroutine reference which puts data into conveyor    
     # convert it to sub anyway
-    my $input_data_iterator = _get_input_iterator($param->{'input_iterator'});
+    my $input_iterator = _get_input_iterator($param->{'input_iterator'});
     
     # @$processors is array with data processor info (see also _create_data_processors)    
     my $processors = _create_data_processors($param->{'process_data'},$param->{'processor_number'} || processors_number); #[pid,$send_wh,$receive_rh,$free]
@@ -189,9 +189,10 @@ sub run {
     # data_merge is sub which merge all processed data inside parent thread
     # it is called each time after process_data returns some new portion of data    
     my $data_merge_code = $param->{'merge_data'};
+    die "data_merge should be code ref" unless ref($data_merge_code) eq 'CODE';
     
     # data process conveyor. 
-    while (my $data = $input_data_iterator->()) {
+    while (my $data = $input_iterator->()) {
         my $wait = _process_data($data,$processors);
         if ($wait) {
             _receive_and_merge_data($processors,$data_merge_code);
@@ -210,7 +211,7 @@ sub run {
 
 =head1 NAME
 
-Parallel::DataPipe - parallel data processing conveyor 
+C<Parallel::DataPipe> - parallel data processing conveyor 
 
 =encoding utf-8
 
@@ -228,9 +229,10 @@ Parallel::DataPipe - parallel data processing conveyor
 =head1 DESCRIPTION
 
 With modern multicore computer environment it's crucial to use all processing power to make processing data faster.
-This module provide simple way to do that:
+This module provides simple way to do that:
 
-1) define how source (input) data is obtained. It could be either array reference or subroutine reference. 
+1) define how source (input) data is obtained. It could be either array reference or subroutine reference.
+If it's subroutine it should return undef on EOF.
 
  my $conn = DBIx::Connector->new($dsn, $username, $password, {
       RaiseError => 1,
@@ -243,7 +245,7 @@ This module provide simple way to do that:
   });
  my $input_iterator = sub { $sth->fetch };
 
-2) define data processor using key process_data - how input data is processed.
+2) define data processor:
 
  my $process_data = sub {
 	my $parent = $_->[0];
@@ -254,69 +256,71 @@ This module provide simple way to do that:
 	return [$parent,$children_total_age];
  };
 
-3) define what to do with processed records:
+3) define what to do with processed records (merge):
 
  my $merge_data = sub {
 	print join(":",@$_)."\n";
  };
 
-Parallel::DataPipe::run { input_iterator=>$input_iterator, process_data=>$process_data, merge_data => $merge_data };
+ Parallel::DataPipe::run { input_iterator=>$input_iterator, process_data=>$process_data, merge_data => $merge_data };
 
 This approach wins if you do some complex calculations on large data arrays which took a lot of time due processing complexity
-during $process_data part. This part is parallelized, so it's advised not to do anything with shared resources in this part.
-Instead if you need showing progress, etc. - do it in merge_data part which is executed in parent thread and has access to all parent state.
+during C<process_data> part. This part is parallelized, so it's advised not to do anything with shared resources in this part.
+Instead if you need showing progress, etc. - do it in C<merge_data> part which is executed in parent thread and has access to all parent state.
 
 =head2 run
 
 This is subroutine which covers magic of parallelizing data processing.
 It receives paramaters with these keys via hash ref.
 
-input_iterator - reference to array or subroutine which should return data item to be processed.
+B<input_iterator> - reference to array or subroutine which should return data item to be processed.
     in case of subroutine it should return undef to signal EOF.
 
-process_data - reference to subroutine which process data items. they are passed via $_ variable
+B<process_data> - reference to subroutine which process data items. they are passed via $_ variable
 	Then it should return processed data. this subroutine is executed in forked process so don't
     use any shared resources inside it.
     Also you can update children state, but it will not affect parent state.
 
-processor_number - (optional) number of parallel data processors. if you don't specify,
+B<processor_number> - (optional) number of parallel data processors. if you don't specify,
     it tries to find out a number of cpu cores
 	and create the same number of data processor children.
-    It makes sense to have explicit processor_number
+    It makes sense to have explicit C<processor_number>
     which possibly is greater then cpu cores number
     if you are to use all slave DB servers in your environment 
     and making query to DB servers takes more time then processing returned data.
-    Otherwise it's optimal to have processor_number equal to physical number of cores.
+    Otherwise it's optimal to have C<processor_number> equal to physical number of cores.
 
-merge_data - reference to a subroutine which receives data item which was processed  in $_ and now going to be merged
-	this subroutine is executed in parent thread, so you can rely on changes that it made after process_data completion.
+B<merge_data> - reference to a subroutine which receives data item which was processed  in $_ and now going to be merged
+	this subroutine is executed in parent thread, so you can rely on changes that it made after C<process_data> completion.
 
-=head3 how it works
+=head3 How It Works
 
-1. main thread (parent) forks processor_number of children for processing data.
+1. Main thread (parent) forks C<processor_number> of children for processing data.
 
-2. As soon as data comes from input_iterator it sends it to to next child using
+2. As soon as data comes from C<input_iterator> it sends it to to next child using
 serialization and pipe mechanizm.
 
 3. Child deserialize it, process it, serialize the result and put it to pipe for parent.
 
 4. Parent firstly fills all pipe to children with data and then starts to expect processed data on pipes from children.
 
-5. If it receives data from chidlren it sends processed data to data_merge subroutine,
+5. If it receives data from chidlren it sends processed data to C<data_merge> subroutine,
 puts new portion of unprocessed data to that childs pipe (step 2).
 
-6. This conveyor works until input data is ended.
+6. This conveyor works until input data is ended (end of array or sub returned undef).
 
-7. In the end parent expects processed data from all busy chidlren and puts processed data to data_merge
+7. In the end parent expects processed data from all busy chidlren and puts processed data to C<data_merge>
 
 8. After having all the children sent processed data they are killed and run returns to the caller.
 
 
 =head1 SEE ALSO
 
- L<fork>
- L<subs::parallel>
- L<Parallel::Loops>
+L<fork|http://perldoc.perl.org/functions/fork.html>
+
+L<subs::parallel>
+
+L<Parallel::Loops>
 
 =head1 DEPENDENCIES
 
