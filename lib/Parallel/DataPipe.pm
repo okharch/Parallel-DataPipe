@@ -217,7 +217,6 @@ Parallel::DataPipe - parallel data processing conveyor
 =head1 SYNOPSIS
 
     use Parallel::DataPipe;
-    my @data = 1..20;
     Parallel::DataPipe::run {
         input_iterator => [1..100],
         process_data => sub { "$_:$$" },
@@ -233,33 +232,33 @@ This module provide simple way to do that:
 
 1) define how source (input) data is obtained. It could be either array reference or subroutine reference. 
 
-my $conn = DBIx::Connector->new($dsn, $username, $password, {
+ my $conn = DBIx::Connector->new($dsn, $username, $password, {
       RaiseError => 1,
       AutoCommit => 1,
   });
-my $sth = $conn->run(fixup => sub {
+ my $sth = $conn->run(fixup => sub {
       my $sth = $_->prepare('SELECT id FROM parent');
       $sth->execute;
       $sth;
   });
-my $input_iterator = sub { $sth->fetch };
+ my $input_iterator = sub { $sth->fetch };
 
 2) define data processor using key process_data - how input data is processed.
 
-my $process_data = sub {
+ my $process_data = sub {
 	my $parent = $_->[0];
     my $children_records = $conn->run(fixup => sub {
           $_->selectall_arrayref('SELECT age FROM children where parent=?',{},$parent);
       });
 	my $children_total_age = sum(map $_->[0], @$children_records);
 	return [$parent,$children_total_age];
-};
+ };
 
 3) define what to do with processed records:
 
-my $merge_data = sub {
+ my $merge_data = sub {
 	print join(":",@$_)."\n";
-};
+ };
 
 Parallel::DataPipe::run { input_iterator=>$input_iterator, process_data=>$process_data, merge_data => $merge_data };
 
@@ -268,6 +267,7 @@ during $process_data part. This part is parallelized, so it's advised not to do 
 Instead if you need showing progress, etc. - do it in merge_data part which is executed in parent thread and has access to all parent state.
 
 =head2 run
+
 This is subroutine which covers magic of parallelizing data processing.
 It receives paramaters with these keys via hash ref.
 
@@ -291,34 +291,58 @@ processor_number - (optional) number of parallel data processors. if you don't s
 merge_data - reference to a subroutine which receives data item which was processed  in $_ and now going to be merged
 	this subroutine is executed in parent thread, so you can rely on changes that it made after process_data completion.
 
+=head3 how it works
+
+1. main thread (parent) forks processor_number of children for processing data.
+
+2. As soon as data comes from input_iterator it sends it to to next child using
+serialization and pipe mechanizm.
+
+3. Child deserialize it, process it, serialize the result and put it to pipe for parent.
+
+4. Parent firstly fills all pipe to children with data and then starts to expect processed data on pipes from children.
+
+5. If it receives data from chidlren it sends processed data to data_merge subroutine,
+puts new portion of unprocessed data to that childs pipe (step 2).
+
+6. This conveyor works until input data is ended.
+
+7. In the end parent expects processed data from all busy chidlren and puts processed data to data_merge
+
+8. After having all the children sent processed data they are killed and run returns to the caller.
+
+
 =head1 SEE ALSO
 
-L<fork>
-L<subs::parallel>
-L<Parallel::Loops>
+ L<fork>
+ L<subs::parallel>
+ L<Parallel::Loops>
+
 =head1 DEPENDENCIES
 
 These should all be in perl's core:
 
-use Storable qw(freeze thaw);
-use IO::Select;
-use POSIX ":sys_wait_h";
+ use Storable qw(freeze thaw);
+ use IO::Select;
+ use POSIX ":sys_wait_h";
 
-for tests:
-use Test::More tests => 21;
-use Time::HiRes qw(time);
+
+For tests:
+
+ use Test::More tests => 21;
+ use Time::HiRes qw(time);
 
 
 if found it uses Sereal module for serialization instead of Storable as it is more efficient.
 
 =head1 BUGS 
 
-No bugs are known at the moment. Send any reports to okharch@gmail.com.
+For all bugs small and big and also what do you think about this stuff please send email to okharch@gmail.com.
 
 =head1 SOURCE REPOSITORY
 
 See the git source on github
-L<https://github.com/okharch/Parallel-DataPipe>
+ L<https://github.com/okharch/Parallel-DataPipe>
 
 =head1 COPYRIGHT
 
