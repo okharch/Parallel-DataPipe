@@ -21,22 +21,30 @@ use constant _EOF_ => (-(2 << 31)+1);
 	}
 } # end of processors_number block
 
+{ # begin of serializer block
 my $freeze;
 my $thaw;
 
 # this inits freeze and thaw with Storable subroutines and try to replace them with Sereal counterparts
 sub _init_serializer {
-    $freeze = \&freeze;
-    $thaw = \&thaw;    
-    # try cereal 
-    eval q{
-        use Sereal qw(encode_sereal decode_sereal);
-        $freeze = \&encode_sereal;
-        $thaw = \&decode_sereal;
-    };
+    my $param = shift;
+    if (exists $param->{freeze} && ref($param->{freeze}) eq 'CODE' &&  exists $param->{thaw} && ref($param->{thaw}) eq 'CODE') {
+        $freeze = $param->{freeze};
+        $thaw = $param->{thaw};
+    } else {
+        $freeze = \&freeze;
+        $thaw = \&thaw;
+        # try cereal 
+        eval q{
+            use Sereal qw(encode_sereal decode_sereal);
+            $freeze = \&encode_sereal;
+            $thaw = \&decode_sereal;
+        };
+    }
+    # make some simple test with serializer
+    die "bad serializer!" unless join(",",@{$thaw->($freeze->([1,2,3]))}) eq '1,2,3';
 }
 
-_init_serializer;
 
 # this subroutine reads data from pipe and converts it to perl reference
 # it always expects size of frozen scalar so it know how many it should read
@@ -66,6 +74,8 @@ sub _put_data { my ($fh,$data) = @_;
     }
     $fh->flush();
 }
+
+} # end of serializer block
 
 sub _create_data_processors {
     my ($process_data,$processor_number) = @_;
@@ -179,6 +189,9 @@ sub _get_input_iterator {
 sub run {
     my $param = shift;
     
+    # check if user want to use alternative serialisation routines
+    _init_serializer($param);
+    
     # $input_iterator is either array or subroutine reference which puts data into conveyor    
     # convert it to sub anyway
     my $input_iterator = _get_input_iterator($param->{'input_iterator'});
@@ -228,45 +241,51 @@ C<Parallel::DataPipe> - parallel data processing conveyor
 
 =head1 DESCRIPTION
 
-With modern multicore computer environment it's crucial to use all processing power to make processing data faster.
-This module provides simple way to do that:
+If you have some long running script processing data item by item
+(having on input some data and having on output some processed data i.e. aggregation, webcrawling,etc)
+here is good news for you:
 
-1) define how source (input) data is obtained. It could be either array reference or subroutine reference.
-If it's subroutine it should return undef on EOF.
+You can speed it up 4-20 times with minimal efforts from you.
+Modern computer (even modern smartphones ;) ) have multiple CPU cores: 2,4,8, even 24!
+And huge amount of memory: memory is cheap now.
+So they are ready for parallel data processing.
+With this script there is easy and flexible way to use that power.
 
- my $conn = DBIx::Connector->new($dsn, $username, $password, {
-      RaiseError => 1,
-      AutoCommit => 1,
-  });
- my $sth = $conn->run(fixup => sub {
-      my $sth = $_->prepare('SELECT id FROM parent');
-      $sth->execute;
-      $sth;
-  });
- my $input_iterator = sub { $sth->fetch };
+Well, it is not first method on parallelizm in Perl.
+You could write efficient crawler using single core and framework like Coro::LWP or AnyEvent::HTTP::LWP.
+Also you can elegantly use all your cores for parallel processing using Parallel::Loop.
+So what are benefits of this module?
 
-2) define data processor:
+1) because it uses input_iterator it does not have to know all input data before starting parallel processing
 
- my $process_data = sub {
-	my $parent = $_->[0];
-    my $children_records = $conn->run(fixup => sub {
-          $_->selectall_arrayref('SELECT age FROM children where parent=?',{},$parent);
-      });
-	my $children_total_age = sum(map $_->[0], @$children_records);
-	return [$parent,$children_total_age];
- };
+2) because it uses merge_data processed data is ready for using in main thread immediately.
 
-3) define what to do with processed records (merge):
+1) and 2) remove requirements for memory which is needed to store data items before and after parallel work.
+and allows parallelize work on collecting, processing and using processed data.
 
- my $merge_data = sub {
-	print join(":",@$_)."\n";
- };
+Usually if you don't want to overload your database with multiple simultaneous connections
+you do can do queries only by imput_iterator and then process_data
+and then flush it with merge_data.
 
- Parallel::DataPipe::run { input_iterator=>$input_iterator, process_data=>$process_data, merge_data => $merge_data };
+To (re)write your script for using all processing power of your server you have to find out:
 
-This approach wins if you do some complex calculations on large data arrays which took a lot of time due processing complexity
-during C<process_data> part. This part is parallelized, so it's advised not to do anything with shared resources in this part.
-Instead if you need showing progress, etc. - do it in C<merge_data> part which is executed in parent thread and has access to all parent state.
+1) the method to obtain source/input data.
+I call it input iterator.
+It can be either array with some identifiers/urls or reference to subroutinie which returns next portiion of data or undef if there is nor more data to process.
+
+2) how to process data i.e. method which receives input item and produce output item.
+I call it process_data subroutine.
+The good knews is that item which is processed and then returned
+can be any scalar value in perl, including references to array and hashes.
+It can be everything that Storable can freeze and then thaw.
+
+3) how to use processed data. I call it merge_data.
+In the example above it just prints an item, but you could do buffered inserts to database, send email, etc.
+
+Take into account that 1) and 3) is executed in main script thread. While all 2) work is done in parallel forked threads.
+So for 1) and 3) it's better not to do things that block execution and remains hungry dogs 2) without meat to eat.
+So (still) this approach will benefit if you know that bottleneck in you script is CPU on processing step.
+Of course it's not the case for some web crawling tasks unless you do some heavy calculations
 
 =head2 run
 
@@ -281,6 +300,11 @@ B<process_data> - reference to subroutine which process data items. they are pas
     use any shared resources inside it.
     Also you can update children state, but it will not affect parent state.
 
+B<merge_data> - reference to a subroutine which receives data item which was processed  in $_ and now going to be merged
+	this subroutine is executed in parent thread, so you can rely on changes that it made after C<process_data> completion.
+
+These parameters are optional and has reasonable defaults, so you change them only know what you do
+
 B<processor_number> - (optional) number of parallel data processors. if you don't specify,
     it tries to find out a number of cpu cores
 	and create the same number of data processor children.
@@ -290,9 +314,14 @@ B<processor_number> - (optional) number of parallel data processors. if you don'
     and making query to DB servers takes more time then processing returned data.
     Otherwise it's optimal to have C<processor_number> equal to physical number of cores.
 
-B<merge_data> - reference to a subroutine which receives data item which was processed  in $_ and now going to be merged
-	this subroutine is executed in parent thread, so you can rely on changes that it made after C<process_data> completion.
-
+B<freeze>, B<thaw> - you can use alternative serializer. 
+    for example if you know that you are working with array of words (0..65535) you can use
+    freeze => sub {pack('S*',$_[0])} and thaw => sub {unpack('S*',$_[0])}
+    which will reduce the amount of bytes exchanged between processes.
+    But do it as the last optimization resort only.
+    In fact automatic choise is quite good and efficient.
+    It uses encode_sereal and decode_sereal if Sereal module is found.
+    Otherwise it use Storable freeze and thaw.
 =head3 How It Works
 
 1. Main thread (parent) forks C<processor_number> of children for processing data.
@@ -302,12 +331,12 @@ serialization and pipe mechanizm.
 
 3. Child deserialize it, process it, serialize the result and put it to pipe for parent.
 
-4. Parent firstly fills all pipe to children with data and then starts to expect processed data on pipes from children.
+4. Parent firstly fills up all the pipes to children with data and then starts to expect processed data on pipes from children.
 
 5. If it receives data from chidlren it sends processed data to C<data_merge> subroutine,
 puts new portion of unprocessed data to that childs pipe (step 2).
 
-6. This conveyor works until input data is ended (end of array or sub returned undef).
+6. This conveyor works until input data is ended (end of C<input_iterator> array or C<input_iterator> sub returned undef).
 
 7. In the end parent expects processed data from all busy chidlren and puts processed data to C<data_merge>
 
