@@ -12,11 +12,12 @@ use constant _EOF_ => (-(2 << 31)+1);
 use Carp;
 
 {
-    # this works ok only in unix/linux environment. cygwin as well.
+    # this works correct only in unix/linux environment. cygwin as well.
+    # otherwise it sets processors_number to 2
 	my $processors_number;
 	sub processors_number {
-		# linux/cygwin only 
 		$processors_number = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo|grep processor` unless $processors_number;
+        $processors_number = 2 unless $processors_number; # minimum rational value for this module
 		return $processors_number;
 	}
 } # end of processors_number block
@@ -75,7 +76,7 @@ sub _create_data_processors {
     # raw_wh - pipe to write raw data for processing from main thread to processor
     # processed_rh  - pipe to read processed data from processor to main thread
     # free - flag whether processor is free to process data (waits for data on raw_rh pipe)
-    # data_processor - sub ref fo debug purposes
+    # data_processor - sub ref for debug purposes
     
     for my $i (1..$processor_number)  {
         # row data pipe main => processor
