@@ -9,7 +9,7 @@ BEGIN { use_ok('Parallel::DataPipe') };
 
 # constant for max processor number tests: test_processor_number & test_other_children_survive
 my $processor_number = 32;
-my $n_items = 9; # number of large item to process
+my $n_items = 4; # number of large item to process
 my $mb = 1024*1024;
 
 test_scalar_values();
