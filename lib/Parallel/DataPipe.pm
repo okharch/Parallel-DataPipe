@@ -9,6 +9,7 @@ use Storable qw(freeze thaw);
 use IO::Select;
 use POSIX ":sys_wait_h";
 use constant _EOF_ => (-(2 << 31)+1);
+use Carp;
 
 {
     # this works ok only in unix/linux environment. cygwin as well.
@@ -47,7 +48,8 @@ sub _get_data { my ($fh) = @_;
     return undef if ($data_size == _EOF_);
     return  "" if $data_size == 0;
     read $fh,$data,abs($data_size);
-    return $data_size>0? $thaw->($data) : $data;
+    $data = $thaw->($data) if $data_size>0;
+    return $data;
 }
 
 # this subroutine serialize data reference. otherwise 
@@ -57,8 +59,8 @@ sub _put_data { my ($fh,$data) = @_;
     if (!defined($data)) {
         print $fh pack("l",_EOF_);
     } elsif (ref($data)) {
-        my $fdata = $freeze->($data);
-        print $fh pack("l",length($fdata)).$fdata;
+        $data = $freeze->($data);
+        print $fh pack("l", length($data)).$data;
     } else {
         print $fh pack("l",-length($data)).$data;        
     }
@@ -75,7 +77,7 @@ sub _create_data_processors {
     # free - flag whether processor is free to process data (waits for data on raw_rh pipe)
     # data_processor - sub ref fo debug purposes
     
-    for (1..$processor_number)  {
+    for my $i (1..$processor_number)  {
         # row data pipe main => processor
         pipe(my $raw_rh,my $raw_wh);
         
@@ -86,15 +88,18 @@ sub _create_data_processors {
         my $data_processor = sub {
             local $_ = _get_data($raw_rh);
             # process data with given subroutine
-            my $processed_data = $process_data->();
+            $_ = $process_data->();
             # puts processed data back on pipe to main
-            _put_data($processed_wh,$processed_data);
+            _put_data($processed_wh,$_);
         };
         my $pid;
         unless ($processor_number == 1) {
             # create processor as fork
             $pid = fork();
-            die "can't fork!" unless defined $pid;
+            unless (defined $pid) {
+                #print "say goodbye - can't fork!\n"; <>;
+                confess "can't fork($i)!";
+            }
             if ($pid == 0) {
                 # processor is eternal loop which wait for raw data on pipe from main
                 # processor is killed when it's not needed anymore by kill_data_processors
