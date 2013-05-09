@@ -181,7 +181,7 @@ sub run {
     
     # $input_iterator is either array or subroutine reference which puts data into conveyor    
     # convert it to sub anyway
-    my $input_data_get = _get_input_iterator($param->{'input_iterator'});
+    my $input_data_iterator = _get_input_iterator($param->{'input_iterator'});
     
     # @$processors is array with data processor info (see also _create_data_processors)    
     my $processors = _create_data_processors($param->{'process_data'},$param->{'processor_number'} || processors_number); #[pid,$send_wh,$receive_rh,$free]
@@ -191,7 +191,7 @@ sub run {
     my $data_merge_code = $param->{'merge_data'};
     
     # data process conveyor. 
-    while (my $data = $input_data_get->()) {
+    while (my $data = $input_data_iterator->()) {
         my $wait = _process_data($data,$processors);
         if ($wait) {
             _receive_and_merge_data($processors,$data_merge_code);
