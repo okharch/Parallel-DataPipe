@@ -27,7 +27,7 @@ test_large_data_receive(); # this test is fork ability killer, memory expander, 
 
 test_large_data_process(); # this test is fork ability killer, memory expander, can't make a (lot of) fork after it
 
-print "**Done!\n";
+print "\n***Done!\n";
 
 exit 0;
 
@@ -36,7 +36,7 @@ sub test_scalar_values {
     my @data = 1..1000; 
     my @processed_data = ();
     Parallel::DataPipe::run {
-        input_data => [@data],
+        input_iterator => \@data,
         process_data => sub { $_*2 },
         merge_data => sub { push @processed_data, $_; },
     };
@@ -53,7 +53,7 @@ sub test_serialized_data {
     my @data = map [$_],1..1000; 
     my @processed_data = ();
     Parallel::DataPipe::run {
-        input_data => [@data],
+        input_iterator => \@data,
         process_data => sub {
             [$_->[0]*2];
         },
@@ -76,7 +76,7 @@ sub test_large_data_receive {
     my @processed_data = ();
     my $time = time();
     Parallel::DataPipe::run {
-        input_data => [@data],
+        input_iterator => \@data,
         process_data => sub { $_->[0] =~ s/ {8}/!!!!!!!!/;my $ret = $_->[0] eq $large_data_buf?1:0;undef $_; $ret },
         processor_number => 4,
         merge_data => sub { push @processed_data, $_; },
@@ -106,7 +106,7 @@ sub test_large_data_send {
     my $n = $n_items;
     my $time = time();
     Parallel::DataPipe::run {
-        input_data => sub {$n--||undef },
+        input_iterator => sub {$n-- > 0||undef },
         process_data => sub { [$large_data_buf] },
         processor_number => 3,
         merge_data => sub { push @processed_data, $_->[0] eq $large_data_buf?1:0 },
@@ -135,7 +135,7 @@ sub test_large_data_process {
     my $time = time();
     my $n = $n_items;
     Parallel::DataPipe::run {
-        input_data => sub {$n--?[$large_data_buf]:undef},
+        input_iterator => sub {$n-- > 0?[$large_data_buf]:undef},
         process_data => sub { $_->[0] =~ s/!{8}/        /;[$_->[0]] },
         processor_number => 4,
         merge_data => sub { push @processed_data, $_->[0] =~ m{^ {8} }?1:0 },
@@ -164,7 +164,7 @@ sub test_processor_number {
     my $data_item_per_thread = 4;
     $n=$processor_number*$data_item_per_thread;
     Parallel::DataPipe::run {
-        input_data => sub { $n--|| undef },
+        input_iterator => sub { $n-- > 0|| undef },
         process_data => sub {$$},
         processor_number => $processor_number,
         merge_data => sub {$forks{$_}++},
@@ -194,7 +194,7 @@ sub test_other_children_survive {
     }
     my $n=$processor_number*10;
     Parallel::DataPipe::run {
-        input_data => sub { $n--|| undef },
+        input_iterator => sub { $n-- > 0|| undef },
         process_data => sub {$$},
         processor_number => $processor_number,
         merge_data => sub {},

@@ -163,13 +163,24 @@ sub _kill_data_processors {
     }
 }
 
+sub _get_input_iterator {
+    my $input_iterator = shift;
+    unless (ref($input_iterator) eq 'CODE') {
+        confess "array or code reference expected for input_iterator iterator" unless ref($input_iterator) eq 'ARRAY';
+        my $array = $input_iterator;
+        my $l = @$array;
+        my $i = 0;
+        $input_iterator = sub {$i < $l? $array->[$i++]:undef};
+    }
+    return $input_iterator;
+}
+
 sub run {
     my $param = shift;
     
-    # $input_data is either array or subroutine reference which puts data into conveyor    
-    my $input_data = $param->{'input_data'};
+    # $input_iterator is either array or subroutine reference which puts data into conveyor    
     # convert it to sub anyway
-    my $input_data_get = ref($input_data) eq 'CODE'? $input_data : sub {shift(@$input_data)};
+    my $input_data_get = _get_input_iterator($param->{'input_iterator'});
     
     # @$processors is array with data processor info (see also _create_data_processors)    
     my $processors = _create_data_processors($param->{'process_data'},$param->{'processor_number'} || processors_number); #[pid,$send_wh,$receive_rh,$free]
@@ -207,7 +218,7 @@ Parallel::DataPipe - parallel data processing conveyor
     use Parallel::DataPipe;
     my @data = 1..20;
     Parallel::DataPipe::run {
-        input_data => [1..100],
+        input_iterator => [1..100],
         process_data => sub { "$_:$$" },
         processor_number => 100,
         merge_data => sub { print "$_\n" },
@@ -230,7 +241,7 @@ my $sth = $conn->run(fixup => sub {
       $sth->execute;
       $sth;
   });
-my $input_data = sub { $sth->fetch };
+my $input_iterator = sub { $sth->fetch };
 
 2) define data processor using key process_data - how input data is processed.
 
@@ -249,7 +260,7 @@ my $merge_data = sub {
 	print join(":",@$_)."\n";
 };
 
-Parallel::DataPipe::run { input_data=>$input_data, process_data=>$process_data, merge_data => $merge_data };
+Parallel::DataPipe::run { input_iterator=>$input_iterator, process_data=>$process_data, merge_data => $merge_data };
 
 This approach wins if you do some complex calculations on large data arrays which took a lot of time due processing complexity
 during $process_data part. This part is parallelized, so it's advised not to do anything with shared resources in this part.
@@ -259,7 +270,7 @@ Instead if you need showing progress, etc. - do it in merge_data part which is e
 This is subroutine which covers magic of parallelizing data processing.
 It receives paramaters with these keys via hash ref.
 
-input_data - reference to array or subroutine which should return data item to be processed.
+input_iterator - reference to array or subroutine which should return data item to be processed.
     in case of subroutine it should return undef to signal EOF.
 
 process_data - reference to subroutine which process data items. they are passed via $_ variable
