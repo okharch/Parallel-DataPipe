@@ -301,7 +301,7 @@ No bugs are known at the moment. Send any reports to okharch@gmail.com.
 =head1 SOURCE REPOSITORY
 
 See the git source on github
-L<https://github.com/okharch/paralell-data-process>
+L<https://github.com/okharch/Parallel-DataPipe>
 
 =head1 COPYRIGHT
 
