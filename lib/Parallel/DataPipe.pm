@@ -8,7 +8,7 @@ use warnings;
 use Storable qw(freeze thaw);
 use IO::Select;
 use POSIX ":sys_wait_h";
-use constant __EOF__ => (-(2 << 31)+1);
+use constant _EOF_ => (-(2 << 31)+1);
 
 {
     # this works ok only in unix/linux environment. cygwin as well.
@@ -44,7 +44,7 @@ sub _get_data { my ($fh) = @_;
     my ($data_size,$data);
     read $fh,$data_size,4;
     $data_size = unpack("l",$data_size);
-    return undef if ($data_size == __EOF__);
+    return undef if ($data_size == _EOF_);
     return  "" if $data_size == 0;
     read $fh,$data,abs($data_size);
     return $data_size>0? $thaw->($data) : $data;
@@ -55,7 +55,7 @@ sub _get_data { my ($fh) = @_;
 # it also makes flush to avoid buffering blocks execution
 sub _put_data { my ($fh,$data) = @_;
     if (!defined($data)) {
-        print $fh pack("l",__EOF__);
+        print $fh pack("l",_EOF_);
     } elsif (ref($data)) {
         my $fdata = $freeze->($data);
         print $fh pack("l",length($fdata)).$fdata;
