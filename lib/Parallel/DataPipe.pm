@@ -312,7 +312,7 @@ L<https://github.com/okharch/Parallel-DataPipe>
 
 Copyright (c) 2013 Oleksandr Kharchenko <okharch@gmail.com>
 
-All right reserved. This program is free software; you can redistribute it
+All right reserved. This library is free software; you can redistribute it
 and/or modify it under the same terms as Perl itself.
 
 =head1 AUTHOR
