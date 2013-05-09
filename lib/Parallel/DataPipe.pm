@@ -264,18 +264,18 @@ So what are benefits of this module?
 and allows parallelize work on collecting, processing and using processed data.
 
 Usually if you don't want to overload your database with multiple simultaneous connections
-you do can do queries only by imput_iterator and then process_data
+you do can do queries only by input_iterator and then process_data
 and then flush it with merge_data.
 
 To (re)write your script for using all processing power of your server you have to find out:
 
 1) the method to obtain source/input data.
 I call it input iterator.
-It can be either array with some identifiers/urls or reference to subroutinie which returns next portiion of data or undef if there is nor more data to process.
+It can be either array with some identifiers/urls or reference to subroutine which returns next portion of data or undef if there is nor more data to process.
 
 2) how to process data i.e. method which receives input item and produce output item.
 I call it process_data subroutine.
-The good knews is that item which is processed and then returned
+The good news is that item which is processed and then returned
 can be any scalar value in perl, including references to array and hashes.
 It can be everything that Storable can freeze and then thaw.
 
@@ -286,6 +286,9 @@ Take into account that 1) and 3) is executed in main script thread. While all 2)
 So for 1) and 3) it's better not to do things that block execution and remains hungry dogs 2) without meat to eat.
 So (still) this approach will benefit if you know that bottleneck in you script is CPU on processing step.
 Of course it's not the case for some web crawling tasks unless you do some heavy calculations
+
+P.S. Please help me to improve documentation on this module. I understand my English is far from perfect
+and so probably is clarity of explanations. Thank you!
 
 =head2 run
 
