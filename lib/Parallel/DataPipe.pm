@@ -47,6 +47,7 @@ sub _init_serializer {
 
 
 # this subroutine reads data from pipe and converts it to perl reference
+# or scalar - if size is negative
 # it always expects size of frozen scalar so it know how many it should read
 # to feed thaw 
 sub _get_data { my ($fh) = @_;    
@@ -99,7 +100,7 @@ sub _create_data_processors {
         my $data_processor = sub {
             local $_ = _get_data($raw_rh);
             # process data with given subroutine
-            $_ = $process_data->();
+            $_ = $process_data->($_);
             # puts processed data back on pipe to main
             _put_data($processed_wh,$_);
         };
