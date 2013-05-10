@@ -41,8 +41,8 @@ sub _init_serializer {
             $thaw = \&decode_sereal;
         };
     }
-    # make some simple test with serializer
-    die "bad serializer!" unless join(",",@{$thaw->($freeze->([1,2,3]))}) eq '1,2,3';
+    # don't make any assumptions on serializer capabilities, give all the power to user ;)
+    # die "bad serializer!" unless join(",",@{$thaw->($freeze->([1,2,3]))}) eq '1,2,3';
 }
 
 
