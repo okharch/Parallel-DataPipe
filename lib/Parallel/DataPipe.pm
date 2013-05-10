@@ -206,9 +206,13 @@ sub run {
     die "data_merge should be code ref" unless ref($data_merge_code) eq 'CODE';
     
     # data process conveyor. 
-    while (my $data = $input_iterator->()) {
-        my $wait = _process_data($data,$processors);
-        if ($wait) {
+    while (defined(my $data = $input_iterator->())) {
+        # _process_data returns true if all processor is busy.
+	# in this case we should wait for some of them
+	# using _receive_and_merge_data which waits until at least one of them
+	# put processed data to pipe for parent
+	# which means it is free now
+        if (_process_data($data,$processors)) {
             _receive_and_merge_data($processors,$data_merge_code);
             _process_data($data,$processors);
         }
