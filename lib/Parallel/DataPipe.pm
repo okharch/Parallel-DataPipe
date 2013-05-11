@@ -10,16 +10,16 @@ use IO::Select;
 use POSIX ":sys_wait_h";
 use constant _EOF_ => (-(2 << 31)+1);
 
-{
-    # this works correct only in unix/linux environment. cygwin as well.
+
+# this should work with Windows NT or if user explicitly set that
+my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS}; 
+sub number_of_cpu_cores {
+    return $number_of_cpu_cores if $number_of_cpu_cores;
+    # this works correct only in unix environment. cygwin as well.
+    $number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo`;
     # otherwise it sets number_of_cpu_cores to 2
-	my $number_of_cpu_cores;
-	sub number_of_cpu_cores {
-		$number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo|grep processor` unless $number_of_cpu_cores;
-        $number_of_cpu_cores = 2 unless $number_of_cpu_cores; # minimum rational value for this module
-		return $number_of_cpu_cores;
-	}
-} # end of number_of_cpu_cores block
+    return $number_of_cpu_cores || 2;
+}
 
 { # begin of serializer block
 my $freeze;
@@ -322,6 +322,8 @@ These parameters are optional and has reasonable defaults, so you change them on
 B<number_of_data_processors> - (optional) number of parallel data processors. if you don't specify,
     it tries to find out a number of cpu cores
 	and create the same number of data processor children.
+    It looks for NUMBER_OF_PROCESSORS environment variable, which is set under Windows NT.
+    If this environment variable is not found it looks to /proc/cpuinfo which is availbale under Unix env.
     It makes sense to have explicit C<number_of_data_processors>
     which possibly is greater then cpu cores number
     if you are to use all slave DB servers in your environment 
