@@ -8,7 +8,7 @@ BEGIN { use_ok('Parallel::DataPipe') };
 #printf "You may top -p%s\n",$$;sleep(2);
 
 # constant for max processor number tests: test_processor_number & test_other_children_survive
-my $processor_number = 32;
+my $number_of_data_processors = 32;
 my $n_items = 4; # number of large item to process
 my $mb = 1024*1024;
 
@@ -78,7 +78,7 @@ sub test_large_data_receive {
     Parallel::DataPipe::run {
         input_iterator => \@data,
         process_data => sub { $_->[0] =~ s/ {8}/!!!!!!!!/;my $ret = $_->[0] eq $large_data_buf?1:0;undef $_; $ret },
-        processor_number => 4,
+        number_of_data_processors => 4,
         merge_data => sub { push @processed_data, $_; },
     };
     my $elapsed = time - $time;
@@ -108,7 +108,7 @@ sub test_large_data_send {
     Parallel::DataPipe::run {
         input_iterator => sub {$n-- > 0||undef },
         process_data => sub { [$large_data_buf] },
-        processor_number => 3,
+        number_of_data_processors => 3,
         merge_data => sub { push @processed_data, $_->[0] eq $large_data_buf?1:0 },
     };
     my $elapsed = time - $time;
@@ -137,7 +137,7 @@ sub test_large_data_process {
     Parallel::DataPipe::run {
         input_iterator => sub {$n-- > 0?[$large_data_buf]:undef},
         process_data => sub { $_->[0] =~ s/!{8}/        /;[$_->[0]] },
-        processor_number => 4,
+        number_of_data_processors => 4,
         merge_data => sub { push @processed_data, $_->[0] =~ m{^ {8} }?1:0 },
     };
     my $elapsed = time - $time;
@@ -155,28 +155,28 @@ sub test_large_data_process {
 
 
 sub test_processor_number {
-    print "\n***Testing if conveyor works ok big($processor_number) number of data processors...\n";
+    print "\n***Testing if conveyor works ok big($number_of_data_processors) number of data processors...\n";
     
-    # test processor_number
+    # test number_of_data_processors
     my $n;
     my %forks; # calculates counter of items processed by each data processor, so keys will be pid of data processor
     
     my $data_item_per_thread = 4;
-    $n=$processor_number*$data_item_per_thread;
+    $n=$number_of_data_processors*$data_item_per_thread;
     Parallel::DataPipe::run {
         input_iterator => sub { $n-- > 0|| undef },
         process_data => sub {$$},
-        processor_number => $processor_number,
+        number_of_data_processors => $number_of_data_processors,
         merge_data => sub {$forks{$_}++},
     };
-    ok(keys(%forks) == $processor_number,"explicit number of data_processors($processor_number)- although it depends on implementation");
+    ok(keys(%forks) == $number_of_data_processors,"explicit number of data_processors($number_of_data_processors)- although it depends on implementation");
     ok(zombies() == 0,'no zombies');
     
     return;
     # this test is not critical, so only warn
     my %processor_load;
     $processor_load{$_}++ for values %forks;
-    warn "processor load not aligned (has to be $data_item_per_thread:$processor_number):".join(",",map "$_:$processor_load{$_}",keys %processor_load) unless  keys(%processor_load)==1;
+    warn "processor load not aligned (has to be $data_item_per_thread:$number_of_data_processors):".join(",",map "$_:$processor_load{$_}",keys %processor_load) unless  keys(%processor_load)==1;
 }
 
 sub test_other_children_survive {
@@ -192,11 +192,11 @@ sub test_other_children_survive {
         sleep(2);
         exit;
     }
-    my $n=$processor_number*10;
+    my $n=$number_of_data_processors*10;
     Parallel::DataPipe::run {
         input_iterator => sub { $n-- > 0|| undef },
         process_data => sub {$$},
-        processor_number => $processor_number,
+        number_of_data_processors => $number_of_data_processors,
         merge_data => sub {},
     };
     ok(kill(1,$child)==1,'other child alive');

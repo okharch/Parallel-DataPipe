@@ -12,14 +12,14 @@ use constant _EOF_ => (-(2 << 31)+1);
 
 {
     # this works correct only in unix/linux environment. cygwin as well.
-    # otherwise it sets processors_number to 2
-	my $processors_number;
-	sub processors_number {
-		$processors_number = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo|grep processor` unless $processors_number;
-        $processors_number = 2 unless $processors_number; # minimum rational value for this module
-		return $processors_number;
+    # otherwise it sets number_of_cpu_cores to 2
+	my $number_of_cpu_cores;
+	sub number_of_cpu_cores {
+		$number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo|grep processor` unless $number_of_cpu_cores;
+        $number_of_cpu_cores = 2 unless $number_of_cpu_cores; # minimum rational value for this module
+		return $number_of_cpu_cores;
 	}
-} # end of processors_number block
+} # end of number_of_cpu_cores block
 
 { # begin of serializer block
 my $freeze;
@@ -78,66 +78,72 @@ sub _put_data { my ($fh,$data) = @_;
 
 } # end of serializer block
 
-sub _create_data_processors {
-    my ($process_data,$processor_number) = @_;
-    die "process_data parameter should be code ref" unless ref($process_data) eq 'CODE';
-    my @processors;
-    # each processor has these fields:
-    # pid - needed to kill processor when there is no more data to process
-    # raw_wh - pipe to write raw data for processing from main thread to processor
-    # processed_rh  - pipe to read processed data from processor to main thread
-    # free - flag whether processor is free to process data (waits for data on raw_rh pipe)
-    # data_processor - sub ref for debug purposes
+sub _fork_data_processor {
+    my ($data_processor_callback) = @_;
+    # create processor as fork
+    my $pid = fork();
+    unless (defined $pid) {
+        #print "say goodbye - can't fork!\n"; <>;
+        die "can't fork!";
+    }
+    if ($pid == 0) {
+        # data processor is eternal loop which wait for raw data on pipe from main
+        # data processor is killed when it's not needed anymore by _kill_data_processors
+        $data_processor_callback->() while (1);
+        exit;
+    }
+    return $pid;
+}
+
+sub _create_data_processor {
+    my ($process_data_callback,$fork_data_processor) = @_;
+    # row data pipe main => processor
+    pipe(my $read_raw_data_pipe,my $write_raw_data_pipe);
     
-    for my $i (1..$processor_number)  {
-        # row data pipe main => processor
-        pipe(my $raw_rh,my $raw_wh);
-        
-        # processed data pipe processor => main
-        pipe(my $processed_rh,my $processed_wh);
-        
-        # make closure for single-thread debug purposes
-        my $data_processor = sub {
-            local $_ = _get_data($raw_rh);
-            # process data with given subroutine
-            $_ = $process_data->($_);
-            # puts processed data back on pipe to main
-            _put_data($processed_wh,$_);
-        };
-        my $pid;
-        unless ($processor_number == 1) {
-            # create processor as fork
-            $pid = fork();
-            unless (defined $pid) {
-                #print "say goodbye - can't fork!\n"; <>;
-                die "can't fork($i)!";
-            }
-            if ($pid == 0) {
-                # processor is eternal loop which wait for raw data on pipe from main
-                # processor is killed when it's not needed anymore by kill_data_processors
-                while (1) {
-                    $data_processor->();
-                }
-                exit;
-            }
-        }
-        push @processors,{pid => $pid, raw_wh => $raw_wh, processed_rh => $processed_rh, free => 1,data_processor => $data_processor};
-    }    
-    return \@processors;
+    # processed data pipe processor => main
+    pipe(my $read_processed_data_pipe,my $write_processed_data_pipe);
+    
+    # make closure for single-thread debug purposes
+    my $data_processor = sub {
+        local $_ = _get_data($read_raw_data_pipe);
+        # process data with given subroutine
+        $_ = $process_data_callback->($_);
+        # puts processed data back on pipe to main
+        _put_data($write_processed_data_pipe,$_);
+    };
+    
+    # return data processor record 
+    return {
+        $fork_data_processor? (
+        pid => _fork_data_processor($data_processor)            # needed to kill processor when there is no more data to process
+        ) : (),
+        write_raw_data_pipe => $write_raw_data_pipe,            # pipe to write raw data from main to data processor 
+        read_processed_data_pipe => $read_processed_data_pipe,  # pipe to read processed data from processor to main thread                                                                    
+        is_free => 1,                                           # flag whether processor is free for processing data
+                                                                # (waits for data on read_raw_data_pipe )
+        data_processor => $data_processor                       # callback to subroutine which process data $_ => processed($_)
+    };    
+}
+
+sub _create_data_processors {
+    my ($process_data_callback,$number_of_data_processors) = @_;
+    die "process_data parameter should be code ref" unless ref($process_data_callback) eq 'CODE';
+    my $fork_data_processor = $number_of_data_processors > 1;
+    return [map _create_data_processor($process_data_callback,$fork_data_processor), 1..$number_of_data_processors];
 }
 
 sub _process_data {
     my ($data,$processors) = @_;
-    my @free_processors = grep $_->{free},@$processors;
+    my @free_processors = grep $_->{is_free},@$processors;
     return 1 unless @free_processors;
     my $processor = shift(@free_processors);
-    _put_data($processor->{raw_wh},$data);
+    _put_data($processor->{write_raw_data_pipe},$data);
     if (@$processors == 1) {
         # debug (limited, be careful) purposes
         # execute data processor in current thread
         $processors->{data_processor}->(); 
     } else {
-        $processor->{free} = 0; # now it's busy
+        $processor->{is_free} = 0; # now it's busy
     }
     return 0;
 }
@@ -145,18 +151,18 @@ sub _process_data {
 sub _receive_and_merge_data {
     my ($processors,$data_merge_code) = @_;
     
-    my @busy_processors = grep $_->{free}==0,@$processors;
+    my @busy_processors = grep $_->{is_free}==0,@$processors;
     
     # returns false if there is no busy processors
     return 0 unless @busy_processors;
     
     # blocking read until at least one handle is ready
-    my @processed_rh = IO::Select->new(map $_->{processed_rh},@busy_processors)->can_read();
-    for my $rh (@processed_rh) {
+    my @read_processed_data_pipe = IO::Select->new(map $_->{read_processed_data_pipe},@busy_processors)->can_read();
+    for my $rh (@read_processed_data_pipe) {
         local $_ = _get_data($rh);
         #print "merge data:$_\n";
         $data_merge_code->();
-        $_->{free} = 1 for grep $_->{processed_rh} == $rh, @busy_processors;
+        $_->{is_free} = 1 for grep $_->{read_processed_data_pipe} == $rh, @busy_processors;
     }
     
     # returns true if there was busy processors 
@@ -193,29 +199,29 @@ sub run {
     # check if user want to use alternative serialisation routines
     _init_serializer($param);
     
-    # $input_iterator is either array or subroutine reference which puts data into conveyor    
-    # convert it to sub anyway
+    # input_iterator is either array or subroutine reference which puts data into conveyor    
+    # convert it to sub ref anyway to simplify conveyor loop
     my $input_iterator = _get_input_iterator($param->{'input_iterator'});
     
-    # @$processors is array with data processor info (see also _create_data_processors)    
-    my $processors = _create_data_processors($param->{'process_data'},$param->{'processor_number'} || processors_number); #[pid,$send_wh,$receive_rh,$free]
+    # @$processors is array with data processor info
+    my $processors = _create_data_processors($param->{'process_data'},$param->{'number_of_data_processors'} || number_of_cpu_cores); 
     
     # data_merge is sub which merge all processed data inside parent thread
     # it is called each time after process_data returns some new portion of data    
     my $data_merge_code = $param->{'merge_data'};
     die "data_merge should be code ref" unless ref($data_merge_code) eq 'CODE';
     
-    # data process conveyor. 
+    # data processing conveyor. 
     while (defined(my $data = $input_iterator->())) {
         # _process_data returns true if all processor is busy.
-	# in this case we should wait for some of them
-	# using _receive_and_merge_data which waits until at least one of them
-	# put processed data to pipe for parent
-	# which means it is free now
-        if (_process_data($data,$processors)) {
-            _receive_and_merge_data($processors,$data_merge_code);
-            _process_data($data,$processors);
-        }
+        # in this case we should wait for some of them
+        # using _receive_and_merge_data which waits 
+        # until at least one of them put processed data to pipe for parent
+        # which means it is free now
+         if (_process_data($data,$processors)) {
+             _receive_and_merge_data($processors,$data_merge_code);
+             _process_data($data,$processors);
+         }
     }
     
     # receive and merge remaining data from parallel processors
@@ -239,7 +245,7 @@ C<Parallel::DataPipe> - parallel data processing conveyor
     Parallel::DataPipe::run {
         input_iterator => [1..100],
         process_data => sub { "$_:$$" },
-        processor_number => 100,
+        number_of_data_processors => 100,
         merge_data => sub { print "$_\n" },
     };
     
@@ -313,14 +319,14 @@ B<merge_data> - reference to a subroutine which receives data item which was pro
 
 These parameters are optional and has reasonable defaults, so you change them only know what you do
 
-B<processor_number> - (optional) number of parallel data processors. if you don't specify,
+B<number_of_data_processors> - (optional) number of parallel data processors. if you don't specify,
     it tries to find out a number of cpu cores
 	and create the same number of data processor children.
-    It makes sense to have explicit C<processor_number>
+    It makes sense to have explicit C<number_of_data_processors>
     which possibly is greater then cpu cores number
     if you are to use all slave DB servers in your environment 
     and making query to DB servers takes more time then processing returned data.
-    Otherwise it's optimal to have C<processor_number> equal to physical number of cores.
+    Otherwise it's optimal to have C<number_of_data_processors> equal to number of cpu cores.
 
 B<freeze>, B<thaw> - you can use alternative serializer. 
     for example if you know that you are working with array of words (0..65535) you can use
@@ -332,7 +338,7 @@ B<freeze>, B<thaw> - you can use alternative serializer.
     Otherwise it use Storable freeze and thaw.
 =head3 How It Works
 
-1. Main thread (parent) forks C<processor_number> of children for processing data.
+1. Main thread (parent) forks C<number_of_data_processors> of children for processing data.
 
 2. As soon as data comes from C<input_iterator> it sends it to to next child using
 serialization and pipe mechanizm.
