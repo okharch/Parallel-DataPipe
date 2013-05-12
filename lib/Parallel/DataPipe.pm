@@ -9,11 +9,12 @@ use Storable qw(freeze thaw);
 use IO::Select;
 use POSIX ":sys_wait_h";
 use constant _EOF_ => (-(2 << 31)+1);
-
+use Carp;
 
 # this should work with Windows NT or if user explicitly set that
 my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS}; 
 sub number_of_cpu_cores {
+    $number_of_cpu_cores = $_[0] if @_; # setter
     return $number_of_cpu_cores if $number_of_cpu_cores;
     # this works correct only in unix environment. cygwin as well.
     $number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo`;
@@ -66,6 +67,7 @@ sub _get_data { my ($fh) = @_;
 # it also makes flush to avoid buffering blocks execution
 sub _put_data { my ($fh,$data) = @_;
     if (!defined($data)) {
+        confess("undefined fh") unless $fh;
         print $fh pack("l",_EOF_);
     } elsif (ref($data)) {
         $data = $freeze->($data);
@@ -121,7 +123,6 @@ sub _create_data_processor {
         read_processed_data_pipe => $read_processed_data_pipe,  # pipe to read processed data from processor to main thread                                                                    
         is_free => 1,                                           # flag whether processor is free for processing data
                                                                 # (waits for data on read_raw_data_pipe )
-        data_processor => $data_processor                       # callback to subroutine which process data $_ => processed($_)
     };    
 }
 
@@ -137,15 +138,10 @@ sub _process_data {
     my @free_processors = grep $_->{is_free},@$processors;
     return 1 unless @free_processors;
     my $processor = shift(@free_processors);
+    debug('processor:%s',$processor);
     _put_data($processor->{write_raw_data_pipe},$data);
-    if (@$processors == 1) {
-        # debug (limited, be careful) purposes
-        # execute data processor in current thread
-        $processors->{data_processor}->(); 
-    } else {
-        $processor->{is_free} = 0; # now it's busy
-    }
-    return 0;
+    $processor->{is_free} = 0; # now it's busy
+    return 0; 
 }
 
 sub _receive_and_merge_data {
@@ -214,12 +210,14 @@ sub run {
     # data processing conveyor. 
     while (defined(my $data = $input_iterator->())) {
         # _process_data returns true if all processor is busy.
-        # in this case we should wait for some of them
-        # using _receive_and_merge_data which waits 
-        # until at least one of them put processed data to pipe for parent
-        # which means it is free now
          if (_process_data($data,$processors)) {
+            # in this case we should wait for some of them
+            # using _receive_and_merge_data which waits 
+            # until at least one of them put processed data to pipe for parent
+            # which means it is free now
              _receive_and_merge_data($processors,$data_merge_code);
+             # because all the processors were busy it did not process data
+             # process it again, now some of them are free
              _process_data($data,$processors);
          }
     }
@@ -230,6 +228,13 @@ sub run {
     # now kill & rip all data processors
     _kill_data_processors($processors);
 }
+
+sub debug {
+	return;
+	my $fmt= shift;
+	printf STDERR "$$:$fmt\n",map ref($_)?Dumper($_):$_,@_;
+}
+
 
 1;
 
