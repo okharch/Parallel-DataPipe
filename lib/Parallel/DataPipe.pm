@@ -81,6 +81,7 @@ sub _put_data { my ($fh,$data) = @_;
 sub _fork_data_processor {
     my ($data_processor_callback) = @_;
     # create processor as fork
+    local $SIG{TERM} = sub {exit;}; # exit silently from data processors
     my $pid = fork();
     unless (defined $pid) {
         #print "say goodbye - can't fork!\n"; <>;
@@ -165,7 +166,7 @@ sub _kill_data_processors {
     my ($processors) = @_;
     my @pid_to_kill = map $_->{pid},@$processors;
     my %pid_to_wait = map {$_=>undef} @pid_to_kill;
-    kill(1,@pid_to_kill);
+    kill('SIGTERM',@pid_to_kill);
     while (keys %pid_to_wait) {
         my $pid = wait;
         last if $pid == -1;
