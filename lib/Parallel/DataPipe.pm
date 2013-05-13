@@ -313,25 +313,27 @@ B<freeze>, B<thaw> - you can use alternative serializer.
     In fact automatic choise is quite good and efficient.
     It uses encode_sereal and decode_sereal if Sereal module is found.
     Otherwise it use Storable freeze and thaw.
+
 =head3 How It Works
 
-1. Main thread (parent) forks C<number_of_data_processors> of children for processing data.
+1) Main thread (parent) forks C<number_of_data_processors> of children for processing data.
 
-2. As soon as data comes from C<input_iterator> it sends it to to next child using
-serialization and pipe mechanizm.
+2) As soon as data comes from C<input_iterator> it sends it to next child using
+pipe mechanizm.
 
-3. Child deserialize it, process it, serialize the result and put it to pipe for parent.
+3) Child processes data and returns result back to parent using pipe.
 
-4. Parent firstly fills up all the pipes to children with data and then starts to expect processed data on pipes from children.
+4) Parent firstly fills up all the pipes to children with data and then
+starts to expect processed data on pipes from children.
 
-5. If it receives data from chidlren it sends processed data to C<data_merge> subroutine,
-puts new portion of unprocessed data to that childs pipe (step 2).
+5) If it receives result from chidlren it sends processed data to C<data_merge> subroutine,
+and starts loop 2) again.
 
-6. This conveyor works until input data is ended (end of C<input_iterator> array or C<input_iterator> sub returned undef).
+6) loop 2) ends when input data is ended (end of C<input_iterator> array or C<input_iterator> sub returned undef).
 
-7. In the end parent expects processed data from all busy chidlren and puts processed data to C<data_merge>
+7) In the end parent expects processed data from all busy chidlren and puts processed data to C<data_merge>
 
-8. After having all the children sent processed data they are killed and run returns to the caller.
+8) After having all the children sent processed data they are killed and run returns to the caller.
 
 
 =head1 SEE ALSO
@@ -341,6 +343,10 @@ L<fork|http://perldoc.perl.org/functions/fork.html>
 L<subs::parallel>
 
 L<Parallel::Loops>
+
+L<MCE>
+
+L<Parallel::parallel_map>
 
 =head1 DEPENDENCIES
 
