@@ -9,7 +9,6 @@ use Storable qw(freeze thaw);
 use IO::Select;
 use POSIX ":sys_wait_h";
 use constant _EOF_ => (-(2 << 31)+1);
-use Carp;
 
 # this should work with Windows NT or if user explicitly set that
 my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS}; 
@@ -67,7 +66,6 @@ sub _get_data { my ($fh) = @_;
 # it also makes flush to avoid buffering blocks execution
 sub _put_data { my ($fh,$data) = @_;
     if (!defined($data)) {
-        confess("undefined fh") unless $fh;
         print $fh pack("l",_EOF_);
     } elsif (ref($data)) {
         $data = $freeze->($data);
@@ -138,7 +136,6 @@ sub _process_data {
     my @free_processors = grep $_->{is_free},@$processors;
     return 1 unless @free_processors;
     my $processor = shift(@free_processors);
-    debug('processor:%s',$processor);
     _put_data($processor->{write_raw_data_pipe},$data);
     $processor->{is_free} = 0; # now it's busy
     return 0; 
@@ -156,7 +153,6 @@ sub _receive_and_merge_data {
     my @read_processed_data_pipe = IO::Select->new(map $_->{read_processed_data_pipe},@busy_processors)->can_read();
     for my $rh (@read_processed_data_pipe) {
         local $_ = _get_data($rh);
-        #print "merge data:$_\n";
         $data_merge_code->();
         $_->{is_free} = 1 for grep $_->{read_processed_data_pipe} == $rh, @busy_processors;
     }
@@ -228,13 +224,6 @@ sub run {
     # now kill & rip all data processors
     _kill_data_processors($processors);
 }
-
-sub debug {
-	return;
-	my $fmt= shift;
-	printf STDERR "$$:$fmt\n",map ref($_)?Dumper($_):$_,@_;
-}
-
 
 1;
 
@@ -317,7 +306,7 @@ B<number_of_data_processors> - (optional) number of parallel data processors. if
 
 B<freeze>, B<thaw> - you can use alternative serializer. 
     for example if you know that you are working with array of words (0..65535) you can use
-    freeze => sub {pack('S*',$_[0])} and thaw => sub {unpack('S*',$_[0])}
+    freeze => sub {pack('S*',@{$_[0]})} and thaw => sub {[unpack('S*',$_[0])]}
     which will reduce the amount of bytes exchanged between processes.
     But do it as the last optimization resort only.
     In fact automatic choise is quite good and efficient.
@@ -367,7 +356,7 @@ For tests:
  use Time::HiRes qw(time);
 
 
-if found it uses Sereal module for serialization instead of Storable as it is more efficient.
+if found it uses Sereal module for serialization instead of Storable as the former is more efficient.
 
 =head1 BUGS 
 
