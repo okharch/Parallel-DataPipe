@@ -4,3 +4,8 @@ Revision history for Perl extension Parallel::DataPipe.
 	- original version; created by h2xs 1.23 with options
 		-AX Parallel::DataPipe
 
+0.02  Mon May  13
+	- override SIG{TERM} for child to exit silently from data processors
+	- get rid of single-thread logic
+	- fixup for input_iterator returned value so it can return  and 0 for processing. only undef is considered as EOF
+	- $_ is also passed as parameter (@_ or $_[0]) to the process_data closure
