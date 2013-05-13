@@ -329,13 +329,13 @@ starts to expect processed data on pipes from children.
 5) If it receives result from chidlren it sends processed data to C<data_merge> subroutine,
 and starts loop 2) again.
 
-6) loop 2) ends when input data is ended (end of C<input_iterator> array or C<input_iterator> sub returned undef).
+6) loop 2) continues until input data is ended (end of C<input_iterator> array or C<input_iterator> sub returned undef).
 
 7) In the end parent expects processed data from all busy chidlren and puts processed data to C<data_merge>
 
 8) After having all the children sent processed data they are killed and run returns to the caller.
 
-
+Note: If C<input_iterator> or <process_data> returns reference, it serialize/deserialize data before/after pipe.
 =head1 SEE ALSO
 
 L<fork|http://perldoc.perl.org/functions/fork.html>
