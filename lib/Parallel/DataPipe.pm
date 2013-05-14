@@ -1,6 +1,6 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.02';
+our $VERSION='0.03';
 use 5.008; # Perl::MinimumVersion says that
 
 use strict;
@@ -244,11 +244,16 @@ C<Parallel::DataPipe> - parallel data processing conveyor
 
 =head1 DESCRIPTION
 
-If you have some long running script processing data item by item (having on input some data and having on output some processed data i.e. aggregation, webcrawling,etc) here is good news for you:
 
-You can speed it up 4-20 times with minimal efforts from you. Modern computer (even modern smartphones ;) ) have multiple CPU cores: 2,4,8, even 24! And huge amount of memory: memory is cheap now. So they are ready for parallel data processing. With this script there is an easy and flexible way to use that power.
+If you have some long running script processing data item by item
+(having on input some data and having on output some processed data i.e. aggregation, webcrawling,etc)
+you can speed it up 4-20 times using parallel datapipe conveyour.
+Modern computer (even modern smartphones ;) ) have multiple CPU cores: 2,4,8, even 24!
+And huge amount of memory: memory is cheap now.
+So they are ready for parallel data processing.
+With this script there is an easy and flexible way to use that power.
 
-Well, it is not the first method on parallelizm in Perl. You could write an efficient crawler using single core and framework like Coro::LWP or AnyEvent::HTTP::LWP. Also you can elegantly use all your cpu cores for parallel processing using Parallel::Loop. So what are the benefits of this module?
+So what are the benefits of this module?
 
 1) because it uses input_iterator it does not have to know all input data before starting parallel processing
 
@@ -259,8 +264,10 @@ Well, it is not the first method on parallelizm in Perl. You could write an effi
 If you don't want to overload your database with multiple simultaneous queries
 you make queries only within input_iterator and then process_data and then flush it with merge_data.
 On the other hand you usually win if make queries in process_data and do a lot of data processors.
-This guarantees full load of your cpu capabilities.
+Possibly even more then physical cores if database queries takes a long time and then small amount to process.
+
 It's not surprise, that DB servers usually serves N queries simultaneously faster then N queries one by one.
+
 Make tests and you will know.
 
 To (re)write your script for using all processing power of your server you have to find out:
@@ -311,7 +318,7 @@ B<freeze>, B<thaw> - you can use alternative serializer.
     It uses encode_sereal and decode_sereal if Sereal module is found.
     Otherwise it use Storable freeze and thaw.
 
-=head3 How It Works
+=head2 HOW IT WORKS
 
 1) Main thread (parent) forks C<number_of_data_processors> of children for processing data.
 

@@ -1,7 +1,10 @@
-Parallel-DataPipe version 0.02
+Parallel-DataPipe version 0.03
 =================================
 
-CPAN module Parallel::DataPipe for parallel data processing conveyor 
+CPAN module Parallel::DataPipe for parallel data processing conveyor
+Works only if pipe is implemented as intented. (linux,cygwin, etc.)
+
+DOES NOT WORK ON WIN32!
 
 INSTALLATION
 
