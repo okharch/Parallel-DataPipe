@@ -97,15 +97,15 @@ sub _fork_data_processor {
 }
 
 sub _create_data_processor {
-    my ($process_data_callback,$fork_data_processor) = @_;
+    my ($process_data_callback) = @_;
     # row data pipe main => processor
     pipe(my $read_raw_data_pipe,my $write_raw_data_pipe);
     
     # processed data pipe processor => main
     pipe(my $read_processed_data_pipe,my $write_processed_data_pipe);
     
-    # make closure for single-thread debug purposes
     my $data_processor = sub {
+	# wait for data from raw data pipe
         local $_ = _get_data($read_raw_data_pipe);
         # process data with given subroutine
         $_ = $process_data_callback->($_);
@@ -115,9 +115,7 @@ sub _create_data_processor {
     
     # return data processor record 
     return {
-        $fork_data_processor? (
-        pid => _fork_data_processor($data_processor)            # needed to kill processor when there is no more data to process
-        ) : (),
+        pid => _fork_data_processor($data_processor),            # needed to kill processor when there is no more data to process
         write_raw_data_pipe => $write_raw_data_pipe,            # pipe to write raw data from main to data processor 
         read_processed_data_pipe => $read_processed_data_pipe,  # pipe to read processed data from processor to main thread                                                                    
         is_free => 1,                                           # flag whether processor is free for processing data
@@ -128,8 +126,7 @@ sub _create_data_processor {
 sub _create_data_processors {
     my ($process_data_callback,$number_of_data_processors) = @_;
     die "process_data parameter should be code ref" unless ref($process_data_callback) eq 'CODE';
-    my $fork_data_processor = $number_of_data_processors > 1;
-    return [map _create_data_processor($process_data_callback,$fork_data_processor), 1..$number_of_data_processors];
+    return [map _create_data_processor($process_data_callback), 1..$number_of_data_processors];
 }
 
 sub _process_data {
