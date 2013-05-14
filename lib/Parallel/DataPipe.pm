@@ -335,7 +335,10 @@ and starts loop 2) again.
 
 8) After having all the children sent processed data they are killed and run returns to the caller.
 
-Note: If C<input_iterator> or <process_data> returns reference, it serialize/deserialize data before/after pipe.
+Note:
+ If C<input_iterator> or <process_data> returns reference, it serialize/deserialize data before/after pipe.
+ That way you have full control whether data will be serialized on IPC.
+ 
 =head1 SEE ALSO
 
 L<fork|http://perldoc.perl.org/functions/fork.html>
