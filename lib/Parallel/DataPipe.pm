@@ -15,8 +15,12 @@ my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS};
 sub number_of_cpu_cores {
     $number_of_cpu_cores = $_[0] if @_; # setter
     return $number_of_cpu_cores if $number_of_cpu_cores;
-    # this works correct only in unix environment. cygwin as well.
-    $number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo`;
+    eval {
+        # try unix (linux,cygwin,etc.)
+        $number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo 2>/dev/null`;
+        # try bsd
+        ($number_of_cpu_cores) = map m{hw.ncpu\s+(\d+)},`sysctl -a` unless $number_of_cpu_cores;
+    };
     # otherwise it sets number_of_cpu_cores to 2
     return $number_of_cpu_cores || 2;
 }
