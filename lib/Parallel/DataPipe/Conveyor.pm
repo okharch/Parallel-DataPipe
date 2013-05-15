@@ -1,4 +1,4 @@
-# this basic implementation should work ok for all unix flawors: linux, solaris, bsd, cygwin
+# this basic implementation should work ok for all unix flavors: linux, solaris, bsd, cygwin
 package Parallel::DataPipe::Conveyor;
 
 our $VERSION='0.03';
