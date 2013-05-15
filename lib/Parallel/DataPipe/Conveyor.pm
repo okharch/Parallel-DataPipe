@@ -26,24 +26,30 @@ sub number_of_cpu_cores {
     return $number_of_cpu_cores || 1;
 }
 
-{ # begin of serializer block
-my $freeze;
-my $thaw;
+sub freeze {
+	my $self = shift;
+	$self->{freeze}->(@_);
+}
+
+sub thaw {
+	my $self = shift;
+	$self->{thaw}->(@_);
+}
 
 # this inits freeze and thaw with Storable subroutines and try to replace them with Sereal counterparts
 sub _init_serializer {
-    my $param = shift;
+    my ($self,$param) = @_;
     if (exists $param->{freeze} && ref($param->{freeze}) eq 'CODE' &&  exists $param->{thaw} && ref($param->{thaw}) eq 'CODE') {
-        $freeze = $param->{freeze};
-        $thaw = $param->{thaw};
+        $self->{freeze} = $param->{freeze};
+        $self->{thaw} = $param->{thaw};
     } else {
-        $freeze = \&freeze;
-        $thaw = \&thaw;
+        $self->{freeze} = \&freeze;
+        $self->{thaw} = \&thaw;
         # try cereal 
         eval q{
             use Sereal qw(encode_sereal decode_sereal);
-            $freeze = \&encode_sereal;
-            $thaw = \&decode_sereal;
+            $self->{freeze} = \&encode_sereal;
+            $self->{thaw} = \&decode_sereal;
         };
     }
     # don't make any assumptions on serializer capabilities, give all the power to user ;)
@@ -55,33 +61,31 @@ sub _init_serializer {
 # or scalar - if size is negative
 # it always expects size of frozen scalar so it know how many it should read
 # to feed thaw 
-sub _get_data { my ($fh) = @_;    
+sub _get_data { my ($self,$fh) = @_;    
     my ($data_size,$data);
     read $fh,$data_size,4;
     $data_size = unpack("l",$data_size);
     return undef if ($data_size == _EOF_);
     return  "" if $data_size == 0;
     read $fh,$data,abs($data_size);
-    $data = $thaw->($data) if $data_size>0;
+    $data = $self->{thaw}->($data) if $data_size>0;
     return $data;
 }
 
 # this subroutine serialize data reference. otherwise 
 # it puts negative size of scalar and scalar itself to pipe.
 # it also makes flush to avoid buffering blocks execution
-sub _put_data { my ($fh,$data) = @_;
+sub _put_data { my ($self,$fh,$data) = @_;
     if (!defined($data)) {
         print $fh pack("l",_EOF_);
     } elsif (ref($data)) {
-        $data = $freeze->($data);
+        $data = $self->{freeze}->($data);
         print $fh pack("l", length($data)).$data;
     } else {
         print $fh pack("l",-length($data)).$data;        
     }
     $fh->flush();
 }
-
-} # end of serializer block
 
 sub _fork_data_processor {
     my ($data_processor_callback) = @_;
@@ -102,7 +106,7 @@ sub _fork_data_processor {
 }
 
 sub _create_data_processor {
-    my ($process_data_callback) = @_;
+    my ($self,$process_data_callback) = @_;
     # row data pipe main => processor
     pipe(my $read_raw_data_pipe,my $write_raw_data_pipe);
     
@@ -111,11 +115,11 @@ sub _create_data_processor {
     
     my $data_processor = sub {
 	# wait for data from raw data pipe
-        local $_ = _get_data($read_raw_data_pipe);
+        local $_ = $self->_get_data($read_raw_data_pipe);
         # process data with given subroutine
         $_ = $process_data_callback->($_);
         # puts processed data back on pipe to main
-        _put_data($write_processed_data_pipe,$_);
+        $self->_put_data($write_processed_data_pipe,$_);
     };
     
     # return data processor record 
@@ -129,10 +133,10 @@ sub _create_data_processor {
 }
 
 sub _create_data_processors {
-    my ($process_data_callback,$number_of_data_processors) = @_;
+    my ($self,$process_data_callback,$number_of_data_processors) = @_;
     die "process_data parameter should be code ref" unless ref($process_data_callback) eq 'CODE';
 	confess "\$number_of_data_processors:undefined" unless defined($number_of_data_processors);
-    return [map _create_data_processor($process_data_callback), 1..$number_of_data_processors];
+    return [map $self->_create_data_processor($process_data_callback), 1..$number_of_data_processors];
 }
 
 sub process_data {
@@ -141,7 +145,7 @@ sub process_data {
     my @free_processors = grep $_->{is_free},@$processors;
     return 1 unless @free_processors;
     my $processor = shift(@free_processors);
-    _put_data($processor->{write_raw_data_pipe},$data);
+    $self->_put_data($processor->{write_raw_data_pipe},$data);
     $processor->{is_free} = 0; # now it's busy
     return 0; 
 }
@@ -158,7 +162,7 @@ sub receive_and_merge_data {
     # blocking read until at least one handle is ready
     my @read_processed_data_pipe = IO::Select->new(map $_->{read_processed_data_pipe},@busy_processors)->can_read();
     for my $rh (@read_processed_data_pipe) {
-        local $_ = _get_data($rh);
+        local $_ = $self->_get_data($rh);
         $data_merge_code->($_);
         $_->{is_free} = 1 for grep $_->{read_processed_data_pipe} == $rh, @busy_processors;
     }
@@ -181,13 +185,15 @@ sub _kill_data_processors {
 
 sub new {
     my ($class, $param) = @_;
+	
 	my $self = {};
-    
+    bless $self,$class;
+	
     # check if user want to use alternative serialisation routines
-    _init_serializer($param);    
+    $self->_init_serializer($param);    
 
     # @$processors is array with data processor info
-    $self->{processors} = _create_data_processors($param->{'process_data'},$param->{'number_of_data_processors'} || $class->number_of_cpu_cores); 
+    $self->{processors} = $self->_create_data_processors($param->{'process_data'},$param->{'number_of_data_processors'} || $class->number_of_cpu_cores); 
     
     # data_merge is sub which merge all processed data inside parent thread
     # it is called each time after process_data returns some new portion of data    
