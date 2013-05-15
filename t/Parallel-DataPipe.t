@@ -213,8 +213,11 @@ sub zombies {
 
 
 sub max_buf_size { my $d = shift;
-    my ($memtotal,$memused) = map m{Mem:\s+(\d+)\s+(\d+)}, `free -b`;
-    my $free = defined($memtotal)?$memtotal-$memused:64*$mb;
+    my ($memtotal,$memused);
+    eval {
+        ($memtotal,$memused) = map m{Mem:\s+(\d+)\s+(\d+)}, `free -b 2>/dev/null`;
+    };
+    my $free = defined($memtotal)?$memtotal-$memused:32*$mb;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
     my $r = $free / $d;
     # put reasonable limit for max buf size
