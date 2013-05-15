@@ -19,7 +19,7 @@ sub number_of_cpu_cores {
         # try unix (linux,cygwin,etc.)
         $number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo 2>/dev/null`;
         # try bsd
-        ($number_of_cpu_cores) = map m{hw.ncpu\s+(\d+)},`sysctl -a` unless $number_of_cpu_cores;
+        ($number_of_cpu_cores) = map m{hw.ncpu:\s+(\d+)},`sysctl -a` unless $number_of_cpu_cores;
     };
     # otherwise it sets number_of_cpu_cores to 2
     return $number_of_cpu_cores || 1;
