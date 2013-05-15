@@ -22,7 +22,7 @@ sub number_of_cpu_cores {
         ($number_of_cpu_cores) = map m{hw.ncpu\s+(\d+)},`sysctl -a` unless $number_of_cpu_cores;
     };
     # otherwise it sets number_of_cpu_cores to 2
-    return $number_of_cpu_cores || 2;
+    return $number_of_cpu_cores || 1;
 }
 
 { # begin of serializer block
