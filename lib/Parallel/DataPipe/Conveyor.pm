@@ -1,3 +1,4 @@
+# this basic implementation should work ok for all unix flawors: linux, solaris, bsd, cygwin
 package Parallel::DataPipe::Conveyor;
 
 our $VERSION='0.03';
@@ -173,7 +174,7 @@ sub receive_and_merge_data {
     
 sub _kill_data_processors {
     my ($processors) = @_;
-    my @pid_to_kill = map $_->{pid},@$processors;
+    my @pid_to_kill = map $_->{pid}, @$processors;
     my %pid_to_wait = map {$_=>undef} @pid_to_kill;
     kill('SIGTERM',@pid_to_kill);
     while (keys %pid_to_wait) {
