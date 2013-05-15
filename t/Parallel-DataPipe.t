@@ -221,6 +221,7 @@ sub max_buf_size { my $d = shift;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
     my $r = $free / $d;
     # put reasonable limit for max buf size
-    $r = 256 * $mb if $r > 256 * $mb;
+    my $max_buf_size = 8 * $mb;
+    $r = $max_buf_size if $r > $max_buf_size;
     return $r;
 }
