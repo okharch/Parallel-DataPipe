@@ -1,13 +1,13 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.03';
+our $VERSION='0.04';
 use 5.008; # Perl::MinimumVersion says that
 
 use strict;
 use warnings;
-use Parallel::DataPipe::Conveyor;
-use Data::Dumper;
 
+# input_iterator is either array or subroutine reference which puts data into conveyor    
+# convert it to sub ref anyway to simplify conveyor loop
 sub _get_input_iterator {
     my $input_iterator = shift;
     die "input_iterator is required parameter" unless defined($input_iterator);
@@ -21,42 +21,30 @@ sub _get_input_iterator {
     return $input_iterator;
 }
 
+# conveyor is platform dependent, default is POSIX implementation
 sub _create_data_process_conveyor {
-    # this stuff is platform dependent
     my $platform = $^O;
-    my $base = __PACKAGE__ . "::Conveyor";
-    my $class = $base."::$platform";
-    $class = $base unless (eval("require $class;1") && $class->can('new'));
+    my $class = __PACKAGE__ ."::$platform";
+    unless (eval("require $class;1") && $class->can('new')) {
+        $class = __PACKAGE__ ."::POSIX";
+        eval "require $class";
+    }
     return $class->new(@_);    
 }
 
 sub run {
     my $param = shift;
-    
-    # input_iterator is either array or subroutine reference which puts data into conveyor    
-    # convert it to sub ref anyway to simplify conveyor loop
     my $input_iterator = _get_input_iterator(delete $param->{'input_iterator'});
-    
     my $conveyor = _create_data_process_conveyor($param);
     
     # data processing conveyor. 
     while (defined(my $data = $input_iterator->())) {
-        if ($conveyor->process_data($data)) {
-			# process_data returns true if conveyor is stuck (all processor is busy)
-			# in this case we should wait for some of them
-			# using receive_and_merge_data which waits 
-			# until at least one of them put processed data to pipe for parent
-			# which means it is free now
-			$conveyor->receive_and_merge_data();
-			# because all the processors were busy it did not process data
-			# process it again, now some of them are free
-			$conveyor->process_data($data);
-         }
+        $conveyor->process_data($data);
     }
     
-    # receive and merge remaining data from parallel processors
-    while ($conveyor->receive_and_merge_data()) {}
-
+    # receive and merge remaining data from busy processors
+    my $busy_processors = $conveyor->busy_processors; # number of busy processors
+    $conveyor->receive_and_merge_data() while $busy_processors--;
 }
 
 1;

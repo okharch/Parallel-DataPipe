@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 21;
+use Test::More tests => 24;
 use Time::HiRes qw(time);
 BEGIN { use_ok('Parallel::DataPipe') };
 
@@ -12,7 +12,10 @@ my $number_of_data_processors = 32;
 my $n_items = 4; # number of large item to process
 my $mb = 1024*1024;
 
+test_storable(); # test with standard serializer
+#exit;
 test_scalar_values();
+
 test_serialized_data();
 test_processor_number();
 test_other_children_survive();
@@ -31,9 +34,31 @@ print "\n***Done!\n";
 
 exit 0;
 
+sub test_storable {
+    print "\n***Testing if conveyor works ok with Storable nfreeze and thatw...\n";
+    my @data = 1..5; 
+    my @processed_data = ();
+    Parallel::DataPipe::run {
+        input_iterator => [map [$_],@data],
+        process_data => sub { [$_->[0]*2] },
+        merge_data => sub { push @processed_data, $_; },
+        freeze => \&Storable::nfreeze,
+        thaw => \&Storable::thaw,
+    };
+    
+    ok(@data==@processed_data,'length of processed Storable data');
+    @processed_data = map $_->[0], @processed_data;
+    ok(join(",",map $_*2, @data) eq join(",",sort {$a <=> $b} @processed_data),"processed Storable data values");
+    #printf "processed data:%s\n",join ",",@processed_data;
+    ok(zombies() == 0,'no zombies');
+
+}
+
+
+
 sub test_scalar_values {
     print "\n***Testing if conveyor works ok with simple scalar data...\n";
-    my @data = 1..1000; 
+    my @data = 1..10; 
     my @processed_data = ();
     Parallel::DataPipe::run {
         input_iterator => \@data,
