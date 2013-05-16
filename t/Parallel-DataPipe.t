@@ -1,9 +1,13 @@
 use strict;
 use warnings;
 
-use Test::More tests => 24;
+use Test::More tests => 25;
 use Time::HiRes qw(time);
-BEGIN { use_ok('Parallel::DataPipe') };
+BEGIN {
+    use_ok('Parallel::DataPipe');
+    use_ok('Parallel::DataPipe::POSIX');
+};
+
 
 #printf "You may top -p%s\n",$$;sleep(2);
 
