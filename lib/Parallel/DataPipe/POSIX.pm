@@ -10,8 +10,8 @@ use IO::Select;
 use POSIX;
 use constant _EOF_ => (-(2 << 31)+1);
 use Carp qw(confess);
-use IPC::SysV qw(IPC_PRIVATE IPC_CREAT IPC_RMID);
-
+#use IPC::SysV qw(IPC_PRIVATE IPC_CREAT IPC_RMID);
+use Thread::Semaphore;
 # this should work with Windows NT or if user explicitly set that
 my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS}; 
 sub number_of_cpu_cores {
@@ -232,7 +232,8 @@ sub new {
     $self->{write_pipe} = $write;
     
     # semaphore to sync writing to parent pipe
-    $self->{sem_id} = semget(IPC_PRIVATE, 1, 0666 | IPC_CREAT);
+    #$self->{sem_id} = semget(IPC_PRIVATE, 1, 0666 | IPC_CREAT);
+    $self->{sem_id} = Thread::Semaphore->new();
 	
     # check if user want to use alternative serialisation routines
     $self->_init_serializer($param);    
@@ -259,11 +260,12 @@ sub new {
 sub DESTROY {
 	my $self = shift;
     _kill_data_processors($self->{processors});
-    semctl($self->{sem_id},0,IPC_RMID,0);
+    #semctl($self->{sem_id},0,IPC_RMID,0);
 }
 
 sub semaphore_up { 
     my ($sem_id) = @_;
+    $sem_id->up; return;
     my $sem_op = pack("s!*",
         0, 0, 0, # wait until zero
         0, 1, 0, # up
@@ -273,6 +275,7 @@ sub semaphore_up {
 
 sub semaphore_down {
     my ($sem_id) = @_;
+    $sem_id->down; return;
     my $sem_op = pack("s!*",
         0, -1, 0, # down
     );

@@ -26,8 +26,8 @@ sub _create_data_process_conveyor {
     my $platform = $^O;
     my $class = __PACKAGE__ ."::$platform";
     unless (eval("require $class;1") && $class->can('new')) {
-        $class = __PACKAGE__ ."::POSIX";
-        eval "require $class";
+        $class = __PACKAGE__ ."::KISS";
+        eval "require $class" unless $class->can('new');
     }
     return $class->new(@_);    
 }
@@ -37,6 +37,7 @@ sub run {
     my $input_iterator = _get_input_iterator(delete $param->{'input_iterator'});
     my $conveyor = _create_data_process_conveyor($param);
     
+    #local $SIG{ALRM} = 'IGNORE'; # _wait_pipe overides this
     # data processing conveyor. 
     while (defined(my $data = $input_iterator->())) {
         $conveyor->process_data($data);
@@ -44,7 +45,9 @@ sub run {
     
     # receive and merge remaining data from busy processors
     my $busy_processors = $conveyor->busy_processors; # number of busy processors
+    Parallel::DataPipe::KISS::debug('receive remaining:%d',$busy_processors);
     $conveyor->receive_and_merge_data() while $busy_processors--;
+    Parallel::DataPipe::KISS::debug('run finished',$busy_processors);
 }
 
 1;

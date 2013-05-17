@@ -17,7 +17,7 @@ my $n_items = 4; # number of large item to process
 my $mb = 1024*1024;
 
 test_storable(); # test with standard serializer
-#exit;
+exit;
 test_scalar_values();
 
 test_serialized_data();
@@ -40,14 +40,14 @@ exit 0;
 
 sub test_storable {
     print "\n***Testing if conveyor works ok with Storable nfreeze and thatw...\n";
-    my @data = 1..5; 
+    my @data = 1..3; 
     my @processed_data = ();
     Parallel::DataPipe::run {
         input_iterator => [map [$_],@data],
         process_data => sub { [$_->[0]*2] },
         merge_data => sub { push @processed_data, $_; },
-        freeze => \&Storable::nfreeze,
-        thaw => \&Storable::thaw,
+        store => \&Storable::nstore,
+        retrieve => \&Storable::retrieve,
     };
     
     ok(@data==@processed_data,'length of processed Storable data');
