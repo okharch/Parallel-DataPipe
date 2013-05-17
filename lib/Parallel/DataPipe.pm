@@ -5,6 +5,7 @@ use 5.008; # Perl::MinimumVersion says that
 
 use strict;
 use warnings;
+use Parallel::DataPipe::TempFile;
 
 # input_iterator is either array or subroutine reference which puts data into conveyor    
 # convert it to sub ref anyway to simplify conveyor loop
@@ -26,7 +27,7 @@ sub _create_data_process_conveyor {
     my $platform = $^O;
     my $class = __PACKAGE__ ."::$platform";
     unless (eval("require $class;1") && $class->can('new')) {
-        $class = __PACKAGE__ ."::KISS";
+        $class = __PACKAGE__ ."::TempFile";
         eval "require $class" unless $class->can('new');
     }
     return $class->new(@_);    
@@ -35,19 +36,42 @@ sub _create_data_process_conveyor {
 sub run {
     my $param = shift;
     my $input_iterator = _get_input_iterator(delete $param->{'input_iterator'});
+    debug('run started!');
     my $conveyor = _create_data_process_conveyor($param);
-    
-    #local $SIG{ALRM} = 'IGNORE'; # _wait_pipe overides this
+    $SIG{ALRM} = 'IGNORE';
     # data processing conveyor. 
     while (defined(my $data = $input_iterator->())) {
         $conveyor->process_data($data);
     }
     
     # receive and merge remaining data from busy processors
-    my $busy_processors = $conveyor->busy_processors; # number of busy processors
-    Parallel::DataPipe::KISS::debug('receive remaining:%d',$busy_processors);
+    my $busy_processors = $conveyor->busy_processors;
+    debug('merge part, busy processors:%d ',$busy_processors);
     $conveyor->receive_and_merge_data() while $busy_processors--;
-    Parallel::DataPipe::KISS::debug('run finished',$busy_processors);
+    debug('run finished');
+}
+
+use Data::Dump qw(dump);
+my $parent = $$;
+
+sub debug {
+	my ($format,@par) = @_;
+    return;
+	my ($package, $filename, $line) = caller;
+    my $str = sprintf("%s[%s]%s(%d) $format",
+        ($$ == $parent?'P':'C'),
+        $$,$filename,$line,
+        map {defined($_)?(ref($_)?dump($_):$_):'undef'} @par
+    );
+    return unless $str =~ m{process};
+    if (1) {
+        print STDERR "$str\n";
+
+    } else {
+        open my $fh, ">>","/tmp/$$";
+        printf $fh "[%s]%s(%d) $format\n",$$,$filename,$line,map {defined($_)?(ref($_)?dump($_):$_):'undef'} @par if $$==$parent;
+        close $fh;
+    }
 }
 
 1;

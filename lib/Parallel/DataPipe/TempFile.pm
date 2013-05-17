@@ -1,6 +1,6 @@
 # this basic (my favorite keep it simple stupid) implementation
 # should work ok for all platforms with fork support
-package Parallel::DataPipe::KISS;
+package Parallel::DataPipe::TempFile;
 
 use 5.008; # Perl::MinimumVersion says that
 
@@ -113,13 +113,17 @@ sub process_in_file {
 sub _create_data_processor {
     my ($self,$process_data_callback,$process_num) = @_;
     
-    my $process_data_sem =  Thread::Semaphore->new(0);
     my $in_file = $self->process_in_file($process_num);
     my $out_file = $self->process_out_file($process_num);    
  
     my $data_processor = sub {
-        $process_data_sem->down;
+        debug('processnum: %d sleepeing while data is ready',$process_num);
+        eval {
+            local $SIG{ALRM} = sub {die 'alarm'};
+            sleep;
+        };
         local $_ = $self->_get_data($in_file);
+        debug('processnum: %d processing data %s',$process_num,$_);
         # process data with given subroutine
         $_ = $process_data_callback->($_);
         # puts processed data back on pipe to main
@@ -130,7 +134,6 @@ sub _create_data_processor {
     # return data processor record 
     return {
         pid => _fork_data_processor($data_processor),  # needed to kill processor when there is no more data to process
-        process_data_sem => $process_data_sem,
     };
 }
 
@@ -162,13 +165,13 @@ sub process_data {
     $self->_put_data($self->process_in_file($process_num),$data);
 
     debug('put item %d to processor %d (%s)',$processor->{item_number},$processor->{pid},$self->process_in_file($process_num));
-    $processor->{process_data_sem}->up;
+    kill 'SIGALRM',$processor->{pid};
 }
 
 sub receive_and_merge_data {
 	my $self = shift;
+    
     my $process_num = $self->data_ready;
-    return undef unless defined($process_num);
     
     # read data from processed_data file
     local $_ = $self->_get_data($self->process_out_file($process_num));
@@ -204,12 +207,14 @@ sub _kill_data_processors {
 
 sub data_ready { 
     my ($self,$process_num) = @_;
-    if (defined($process_num)) {
+    if (defined($process_num)) {        
         # process wants to inform it processed data and put the result to temporary file
         $self->{sem_pipe_free}->down;
+        debug('process %d put some data processed',$process_num);
         POSIX::write($self->{pipe_write},pack('L',$process_num),4);
         $self->{sem_pipe_free}->up;
     } else {
+        debug('checking if data is ready from pipe');
         POSIX::read($self->{pipe_read},$process_num,4);
         return unpack('L',$process_num);        
     } 
@@ -275,7 +280,7 @@ my $parent = $$;
 
 sub debug {
 	my ($format,@par) = @_;
-    #return;
+    return;
 	my ($package, $filename, $line) = caller;
     my $str = sprintf("%s[%s]%s(%d) $format",
         ($$ == $parent?'P':'C'),

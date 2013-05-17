@@ -1,11 +1,10 @@
 use strict;
 use warnings;
 
-use Test::More tests => 25;
+use Test::More tests => 24;
 use Time::HiRes qw(time);
 BEGIN {
     use_ok('Parallel::DataPipe');
-    use_ok('Parallel::DataPipe::POSIX');
 };
 
 
@@ -16,11 +15,10 @@ my $number_of_data_processors = 32;
 my $n_items = 4; # number of large item to process
 my $mb = 1024*1024;
 
+test_serialized_data();
 test_storable(); # test with standard serializer
-exit;
 test_scalar_values();
 
-test_serialized_data();
 test_processor_number();
 test_other_children_survive();
 
@@ -39,8 +37,8 @@ print "\n***Done!\n";
 exit 0;
 
 sub test_storable {
-    print "\n***Testing if conveyor works ok with Storable nfreeze and thatw...\n";
-    my @data = 1..3; 
+    print "\n***Testing if conveyor works ok with Storable nfreeze and thaw...\n";
+    my @data = 1..1000; 
     my @processed_data = ();
     Parallel::DataPipe::run {
         input_iterator => [map [$_],@data],
@@ -62,7 +60,7 @@ sub test_storable {
 
 sub test_scalar_values {
     print "\n***Testing if conveyor works ok with simple scalar data...\n";
-    my @data = 1..10; 
+    my @data = 1..10000; 
     my @processed_data = ();
     Parallel::DataPipe::run {
         input_iterator => \@data,
@@ -79,7 +77,7 @@ sub test_scalar_values {
 sub test_serialized_data {
     print "\n***Testing if conveyor works ok with serizalized data...\n";
     # test pipe for serialized data
-    my @data = map [$_],1..1000; 
+    my @data = map [$_],1..2; 
     my @processed_data = ();
     Parallel::DataPipe::run {
         input_iterator => \@data,
@@ -250,7 +248,7 @@ sub max_buf_size { my $d = shift;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
     my $r = $free / $d;
     # put reasonable limit for max buf size
-    my $max_buf_size = 8 * $mb;
+    my $max_buf_size = 256 * $mb;
     $r = $max_buf_size if $r > $max_buf_size;
     return $r;
 }
