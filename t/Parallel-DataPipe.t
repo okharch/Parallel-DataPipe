@@ -96,7 +96,7 @@ sub test_serialized_data {
 
 sub test_large_data_receive {
     #test large data
-    my $large_data_size = max_buf_size(32); # 64Mb
+    my $large_data_size = max_buf_size(32); 
     my $big = sprintf("big(%dK)",$large_data_size/$kb);
     print "\n***Testing if data processor receives ok $big buffer wrapped into [$n_items] array...\n";
     my $large_data_buf = sprintf("%${large_data_size}s"," ");
@@ -151,12 +151,12 @@ sub test_large_data_send {
     undef $_;
     $_ = undef for $large_data_buf;
     my $bytes = $large_data_size * $n_items;
-    printf "%d Kb have been sent from processor to parent in a %.3f seconds, throughput %.1f Mb/sec\n",$bytes/$kb,$elapsed,$bytes/(1024*1024*$elapsed);
+    printf "%d Kb have been sent from processor to parent in a %.3f seconds, throughput %.1f Kb/sec\n",$bytes/$kb,$elapsed,$bytes/(1024*1024*$elapsed);
 };
 
 sub test_large_data_process {
     #test large data
-    my $large_data_size = max_buf_size(32); # 64Mb
+    my $large_data_size = max_buf_size(32);
     my $big = sprintf("big(%dk)",$large_data_size/$kb);
     print "\n***Testing conveyor (send,process,receive) of $big buffer wrapped into array...\n";
     my $large_data_buf = sprintf("%${large_data_size}s"," ");
@@ -180,7 +180,7 @@ sub test_large_data_process {
     undef $_;
     $_ = undef for $large_data_buf;
     my $bytes = $large_data_size * $n_items * 2;
-    printf "%d Mb have been sent,processed & received in %.3f seconds, throughput %.1f Mb/sec\n",$bytes/$kb,$elapsed,$bytes/($kb*$elapsed);
+    printf "%d Kb have been sent,processed & received in %.3f seconds, throughput %.1f Kb/sec\n",$bytes/$kb,$elapsed,$bytes/($kb*$elapsed);
 };
 
 
