@@ -2,9 +2,10 @@ Parallel-DataPipe version 0.03
 =================================
 
 CPAN module Parallel::DataPipe for parallel data processing conveyor
-Works only if pipe is implemented as intented. (linux,cygwin, etc.)
 
-DOES NOT WORK ON WIN32!
+Multiplatform implementation: tests are passed for MSWin32, Freebsd, Cygwin, Linux
+
+Thanks to Rocco Caputo's IO::Pipely::pipely where I got the idea how to communicate using mutliplatform pipes.
 
 INSTALLATION
 
@@ -17,15 +18,7 @@ To install this module type the following:
 
 DEPENDENCIES
 
-These should all be in perl's core:
-
-use Storable qw(freeze thaw);
-use IO::Select;
-use POSIX ":sys_wait_h";
-
-For tests:
-use Test::More tests => 21;
-use Time::HiRes qw(time);
+It depends only on Core Perl modules now.
 
 If found it uses Sereal module for serialization instead of Storable as it is more efficient.
 

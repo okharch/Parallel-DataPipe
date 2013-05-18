@@ -1,5 +1,6 @@
 Revision history for Perl extension Parallel::DataPipe.
-
+0.04  Sat May  18
+    - at last! multiplatform implementation. tests are passed for MSWin32, Freebsd, Cygwin, Linux
 0.03  Tue May  14 2013
     - fix for #85289: tests hang on Windows. added test if pipes work as intented [okharch]
     
