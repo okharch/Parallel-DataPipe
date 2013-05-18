@@ -9,7 +9,7 @@ use Storable;
 use IO::Select;
 use List::Util qw(first max min);
 use IO::Pipely qw(pipely);
-use constant PIPE_MAX_CHUNK_SIZE => 1024;
+use constant PIPE_MAX_CHUNK_SIZE => ($^O eq 'MSWin32'?1024:16*1024);
 use constant _EOF_ => (-(1<<31));
 
 # input_iterator is either array or subroutine reference which puts data into conveyor    
@@ -31,19 +31,15 @@ sub _get_input_iterator {
 sub run {
     my $param = shift;
     my $input_iterator = _get_input_iterator(delete $param->{'input_iterator'});
-    debug('run started!');
     my $conveyor = Parallel::DataPipe->new($param);
     $SIG{ALRM} = 'IGNORE';
     # data processing conveyor. 
     while (defined(my $data = $input_iterator->())) {
         $conveyor->process_data($data);
-    }
-    
+    }    
     # receive and merge remaining data from busy processors
     my $busy_processors = $conveyor->busy_processors;
-    debug('merge part, busy processors:%d ',$busy_processors);
     $conveyor->receive_and_merge_data() while $busy_processors--;
-    debug('run finished');
 }
 
 # this should work with Windows NT or if user explicitly set that
@@ -108,14 +104,15 @@ sub _get_data {
     } else {
         my $length = abs($data_size);
         my $offset = 0;
-        my @buf;
+        # allocate all the buffer for $data beforehand
+        $data = sprintf("%${length}s","");
         while ($offset < $length) {
             my $chunk_size = min(PIPE_MAX_CHUNK_SIZE,$length-$offset);        
             $fh->sysread(my $buf,$chunk_size);
-            push @buf,$buf;
+            # use lvalue form of substr to copy data in preallocated buffer        
+            substr($data,$offset,$chunk_size) = $buf;
             $offset += $chunk_size;
         }
-        $data = join "",@buf;
         $data = $self->thaw($data) if $data_size<0; 
     }
     return $data;
@@ -196,7 +193,6 @@ sub _create_data_processors {
 
 sub process_data {
 	my ($self,$data) = @_;
-    debug('process data:%s',$data);
     my $processor;
     if ($self->{free_processors}) {
         $processor = $self->{processors}[--$self->{free_processors}];
@@ -209,7 +205,7 @@ sub process_data {
     $self->_put_data($processor->{child_write},$data);
 }
 
-# this method is called once when input data EOF.
+# this method is called once when input data is ended
 # to find out how many processors were involved in data processing
 # then it calls receive_and_merge_data 1..busy_processors times
 sub busy_processors {
@@ -220,12 +216,11 @@ sub busy_processors {
 sub receive_and_merge_data {
 	my $self = shift;
     my ($processors,$data_merge_code,$ready) = @{$self}{qw(processors data_merge_code ready)};
-    $ready ||= [];
+    $self->{ready} = $ready = [] unless $ready;
     @$ready = IO::Select->new(map $_->{parent_read},@$processors)->can_read() unless @$ready;
     my $fh = shift(@$ready);
     my $processor = first {$_->{parent_read} == $fh} @$processors;
     local $_ = $self->_get_data($fh);
-    debug('calling merge with %s',$_);
     $data_merge_code->($_,$processor->{item_number});
     return $processor;
 }
@@ -235,46 +230,35 @@ sub _kill_data_processors {
     my $processors = $self->{processors};
     my @pid_to_kill = map $_->{pid}, @$processors;
     my %pid_to_wait = map {$_=>undef} @pid_to_kill;
-    debug('killing data processors : %s',\@pid_to_kill);
     # put undef to input of data_processor - they know it's time to exit
     $self->_put_data($_->{child_write}) for @$processors;
     while (keys %pid_to_wait) {
         my $pid = wait;
         last if $pid == -1;
         delete $pid_to_wait{$pid};
-        debug('rip child %s',$pid);
     }
-    debug('killed & ripped ok');
 }
 
 sub new {
-    my ($class, $param) = @_;
-	
+    my ($class, $param) = @_;	
 	my $self = {};
-    bless $self,$class;
-    
-    # merge item_number implementation
-    $self->{item_number} = 0;
-    
+    bless $self,$class;    
+    # item_number for merge implementation
+    $self->{item_number} = 0;    
     # check if user want to use alternative serialisation routines
     $self->_init_serializer($param);    
-
     # @$processors is array with data processor info
     $self->{processors} = $self->_create_data_processors(
         map delete $param->{$_},qw(process_data number_of_data_processors)
     );
     # this counts processors which are still not involved in processing data
-    $self->{free_processors} = @{$self->{processors}};
-    debug('free processors:%d',$self->{free_processors});
-    
+    $self->{free_processors} = @{$self->{processors}};    
     # data_merge is sub which merge all processed data inside parent thread
     # it is called each time after process_data returns some new portion of data    
     $self->{data_merge_code} = delete $param->{'merge_data'};
-    die "data_merge should be code ref" unless ref($self->{data_merge_code}) eq 'CODE';
-    
+    die "data_merge should be code ref" unless ref($self->{data_merge_code}) eq 'CODE';    
     my $not_supported = join ", ", keys %$param;
-    die "Parameters are not supported:". $not_supported if $not_supported;
-	
+    die "Parameters are not supported:". $not_supported if $not_supported;	
 	return $self;
 }
 
@@ -283,20 +267,6 @@ sub DESTROY {
     $self->_kill_data_processors;
     #semctl($self->{sem_id},0,IPC_RMID,0);
 }
-
-use Data::Dump qw(dump);
-use Time::HiRes qw(time);
-my $lt = time;
-sub debug {
-    $lt=time unless defined($lt);
-    return;
-	my ($format,@par) = @_;
-	my ($package, $filename, $line) = caller;
-	printf STDERR "%s[%5d](%d) $format\n",$filename,(time-$lt)*1000,$line,map {defined($_)?(ref($_)?dump($_):$_):'undef'} @par;
-    $lt=time;
-}
-
-
 
 1;
 
