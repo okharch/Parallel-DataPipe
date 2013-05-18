@@ -570,7 +570,9 @@ L<Parallel::Loops>
 
 L<MCE>
 
-L<Parallel::parallel_map>
+L<IO::Pipely> - pipes that work almost everywhere
+
+L<POE> - portable multitasking and networking framework for any event loop
 
 =head1 DEPENDENCIES
 
