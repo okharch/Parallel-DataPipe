@@ -7,8 +7,9 @@ use strict;
 use warnings;
 use Storable;
 use IO::Select;
-use List::Util qw(first);
+use List::Util qw(first max min);
 use IO::Pipely qw(pipely);
+use constant PIPE_MAX_CHUNK_SIZE => 8*1024;
 
 # input_iterator is either array or subroutine reference which puts data into conveyor    
 # convert it to sub ref anyway to simplify conveyor loop
@@ -103,7 +104,16 @@ sub _get_data {
     if ($data_size == 0) {
         $data = '';
     } else {
-        $fh->sysread($data,abs($data_size));
+        my $length = abs($data_size);
+        my $offset = 0;
+        my @buf;
+        while ($offset < $length) {
+            my $chunk_size = min(PIPE_MAX_CHUNK_SIZE,$length-$offset);        
+            $fh->sysread(my $buf,$chunk_size);
+            push @buf,$buf;
+            $offset += $chunk_size;
+        }
+        $data = join "",@buf;
         $data = $self->thaw($data) if $data_size<0; 
     }
     return $data;
@@ -120,8 +130,14 @@ sub _put_data {
         $data = $self->freeze($data);
         $length = -length($data);
     }
-    $fh->syswrite(pack("l", $length)); 
-    $fh->syswrite($data);
+    $fh->syswrite(pack("l", $length));
+    $length = abs($length);
+    my $offset = 0;
+    while ($offset < $length) {
+        my $chunk_size = min(PIPE_MAX_CHUNK_SIZE,$length-$offset);        
+        $fh->syswrite(substr($data,$offset,$chunk_size));
+        $offset += $chunk_size;
+    }
 }
 
 sub _fork_data_processor {

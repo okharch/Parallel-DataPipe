@@ -8,7 +8,7 @@ BEGIN {
 };
 
 my $kb = 1024;
-my $max_buf_size = 63 * $kb;
+my $max_buf_size = 8 * $kb * $kb;
 
 
 #printf "You may top -p%s\n",$$;sleep(2);
