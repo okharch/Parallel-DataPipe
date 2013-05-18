@@ -8,7 +8,13 @@ BEGIN {
 };
 
 my $kb = 1024;
-my $max_buf_size = $^O eq 'MSWin32'? 32 * $kb : 8 * $kb * $kb;
+my $mb = $kb * $kb;
+my $win32 = $^O eq 'MSWin32';
+
+my $max_buf_size = $win32?
+    8 * $mb  # trying figure out numbers for stable work :)
+    :
+    8 * $mb; # 8mb for others
 
 
 #printf "You may top -p%s\n",$$;sleep(2);
@@ -243,6 +249,7 @@ sub zombies {
 
 
 sub max_buf_size { my $d = shift;
+    return $max_buf_size if $win32;
     my ($memtotal,$memused);
     eval {
         ($memtotal,$memused) = map m{Mem:\s+(\d+)\s+(\d+)}, `free -b 2>/dev/null`;
