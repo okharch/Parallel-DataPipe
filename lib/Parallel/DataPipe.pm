@@ -9,7 +9,8 @@ use Storable;
 use IO::Select;
 use List::Util qw(first max min);
 use IO::Pipely qw(pipely);
-use constant PIPE_MAX_CHUNK_SIZE => 8*1024;
+use constant PIPE_MAX_CHUNK_SIZE => 1024;
+use constant _EOF_ => (-(1<<31));
 
 # input_iterator is either array or subroutine reference which puts data into conveyor    
 # convert it to sub ref anyway to simplify conveyor loop
@@ -101,6 +102,7 @@ sub _get_data {
     my ($data_size,$data,$process_num);
     $fh->sysread($data_size,4);
     $data_size = unpack("l",$data_size);
+    return undef if $data_size == _EOF_; # this if for process_data terminating
     if ($data_size == 0) {
         $data = '';
     } else {
@@ -125,6 +127,10 @@ sub _get_data {
 # to shared pipe to communicate with parent
 sub _put_data {
     my ($self,$fh,$data) = @_;
+    unless (defined($data)) {
+        $fh->syswrite(pack("l", _EOF_));
+        return;        
+    }
     my $length = length($data);
     if (ref($data)) {
         $data = $self->freeze($data);
@@ -167,6 +173,7 @@ sub _create_data_processor {
  
     my $data_processor = sub {
         local $_ = $self->_get_data($child_read);
+        exit 0 unless defined($_);
         $_ = $process_data_callback->($_);
         $self->_put_data($parent_write,$_);
     };
@@ -198,6 +205,7 @@ sub process_data {
         $processor = $self->receive_and_merge_data;
     }
     $processor->{item_number} = $self->{item_number}++;
+    die "no support of data processing for undef items!" unless defined($data);
     $self->_put_data($processor->{child_write},$data);
 }
 
@@ -217,16 +225,19 @@ sub receive_and_merge_data {
     my $fh = shift(@$ready);
     my $processor = first {$_->{parent_read} == $fh} @$processors;
     local $_ = $self->_get_data($fh);
+    debug('calling merge with %s',$_);
     $data_merge_code->($_,$processor->{item_number});
     return $processor;
 }
     
 sub _kill_data_processors {
-    my ($processors) = @_;
+    my ($self) = @_;
+    my $processors = $self->{processors};
     my @pid_to_kill = map $_->{pid}, @$processors;
     my %pid_to_wait = map {$_=>undef} @pid_to_kill;
     debug('killing data processors : %s',\@pid_to_kill);
-    kill('SIGTERM',@pid_to_kill);
+    # put undef to input of data_processor - they know it's time to exit
+    $self->_put_data($_->{child_write}) for @$processors;
     while (keys %pid_to_wait) {
         my $pid = wait;
         last if $pid == -1;
@@ -269,7 +280,7 @@ sub new {
 
 sub DESTROY {
 	my $self = shift;
-    _kill_data_processors($self->{processors});
+    $self->_kill_data_processors;
     #semctl($self->{sem_id},0,IPC_RMID,0);
 }
 

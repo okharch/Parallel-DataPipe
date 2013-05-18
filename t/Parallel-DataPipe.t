@@ -1,14 +1,14 @@
 use strict;
 use warnings;
 
-use Test::More tests => 24;
+use Test::More tests => 21;
 use Time::HiRes qw(time);
 BEGIN {
     use_ok('Parallel::DataPipe');
 };
 
 my $kb = 1024;
-my $max_buf_size = 8 * $kb * $kb;
+my $max_buf_size = $^O eq 'MSWin32'? 32 * $kb : 8 * $kb * $kb;
 
 
 #printf "You may top -p%s\n",$$;sleep(2);
@@ -22,7 +22,7 @@ test_storable(); # test with standard serializer
 test_scalar_values();
 
 test_processor_number();
-test_other_children_survive();
+#test_other_children_survive();
 
 # before testing big data let's top to see memory occupied
 #printf "Have a chance loot top -p%s ...\n",$$;<>;
@@ -79,7 +79,7 @@ sub test_scalar_values {
 sub test_serialized_data {
     print "\n***Testing if conveyor works ok with serizalized data...\n";
     # test pipe for serialized data
-    my @data = map [$_],1..2000; 
+    my @data = map [$_],1..10; 
     my @processed_data = ();
     Parallel::DataPipe::run {
         input_iterator => \@data,
@@ -247,7 +247,7 @@ sub max_buf_size { my $d = shift;
     eval {
         ($memtotal,$memused) = map m{Mem:\s+(\d+)\s+(\d+)}, `free -b 2>/dev/null`;
     };
-    my $free = defined($memtotal)?$memtotal-$memused:32*$kb;
+    my $free = defined($memtotal)?$memtotal-$memused:32*$kb*$kb;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
     my $r = $free / $d;
     # put reasonable limit for max buf size
