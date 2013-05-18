@@ -7,13 +7,15 @@ BEGIN {
     use_ok('Parallel::DataPipe');
 };
 
+my $kb = 1024;
+my $max_buf_size = 63 * $kb;
+
 
 #printf "You may top -p%s\n",$$;sleep(2);
 
 # constant for max processor number tests: test_processor_number & test_other_children_survive
 my $number_of_data_processors = 32;
 my $n_items = 4; # number of large item to process
-my $mb = 1024*1024;
 
 test_serialized_data();
 test_storable(); # test with standard serializer
@@ -95,7 +97,7 @@ sub test_serialized_data {
 sub test_large_data_receive {
     #test large data
     my $large_data_size = max_buf_size(32); # 64Mb
-    my $big = sprintf("big(%dM)",$large_data_size/$mb);
+    my $big = sprintf("big(%dK)",$large_data_size/$kb);
     print "\n***Testing if data processor receives ok $big buffer wrapped into [$n_items] array...\n";
     my $large_data_buf = sprintf("%${large_data_size}s"," ");
     my @data = map [$large_data_buf],1..$n_items;
@@ -118,14 +120,15 @@ sub test_large_data_receive {
     undef $_;
     $_ = undef for $large_data_buf,map $_->[0],@data;
     my $bytes = $large_data_size * $n_items;
-    printf "%d Mb have been received from parent & processed %.3f seconds, throughput %.1f Mb/sec\n",$bytes/$mb,$elapsed,$bytes/($mb*$elapsed);
+    printf "%d Kb have been received from parent & processed %.3f seconds, throughput %.1f Kb/sec\n",
+    $bytes/$kb,$elapsed,$bytes/($kb*$elapsed);
 };
 
 
 sub test_large_data_send {
     #test large data
     my $large_data_size = max_buf_size(16);
-    my $big = sprintf("big(%dM)",$large_data_size/$mb);
+    my $big = sprintf("big(%dK)",$large_data_size/$kb);
     print "\n***Testing if data processor sends ok $big buffer wrapped into array...\n";
     my $large_data_buf = sprintf("%${large_data_size}s"," ");
     $large_data_buf =~ s/ {8}/!!!!!!!!/;
@@ -148,13 +151,13 @@ sub test_large_data_send {
     undef $_;
     $_ = undef for $large_data_buf;
     my $bytes = $large_data_size * $n_items;
-    printf "%d Mb have been sent from processor to parent in a %.3f seconds, throughput %.1f Mb/sec\n",$bytes/$mb,$elapsed,$bytes/(1024*1024*$elapsed);
+    printf "%d Kb have been sent from processor to parent in a %.3f seconds, throughput %.1f Mb/sec\n",$bytes/$kb,$elapsed,$bytes/(1024*1024*$elapsed);
 };
 
 sub test_large_data_process {
     #test large data
     my $large_data_size = max_buf_size(32); # 64Mb
-    my $big = sprintf("big(%dM)",$large_data_size/$mb);
+    my $big = sprintf("big(%dk)",$large_data_size/$kb);
     print "\n***Testing conveyor (send,process,receive) of $big buffer wrapped into array...\n";
     my $large_data_buf = sprintf("%${large_data_size}s"," ");
     $large_data_buf =~ s/ {8}/!!!!!!!!/;
@@ -177,7 +180,7 @@ sub test_large_data_process {
     undef $_;
     $_ = undef for $large_data_buf;
     my $bytes = $large_data_size * $n_items * 2;
-    printf "%d Mb have been sent,processed & received in %.3f seconds, throughput %.1f Mb/sec\n",$bytes/$mb,$elapsed,$bytes/($mb*$elapsed);
+    printf "%d Mb have been sent,processed & received in %.3f seconds, throughput %.1f Mb/sec\n",$bytes/$kb,$elapsed,$bytes/($kb*$elapsed);
 };
 
 
@@ -244,11 +247,10 @@ sub max_buf_size { my $d = shift;
     eval {
         ($memtotal,$memused) = map m{Mem:\s+(\d+)\s+(\d+)}, `free -b 2>/dev/null`;
     };
-    my $free = defined($memtotal)?$memtotal-$memused:32*$mb;
+    my $free = defined($memtotal)?$memtotal-$memused:32*$kb;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
     my $r = $free / $d;
     # put reasonable limit for max buf size
-    my $max_buf_size = 8 * $mb;
     $r = $max_buf_size if $r > $max_buf_size;
     return $r;
 }

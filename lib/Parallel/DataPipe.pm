@@ -79,7 +79,6 @@ sub _init_serializer {
     } else {
         $self->{freeze} = \&Storable::nfreeze;
         $self->{thaw} = \&Storable::thaw;
-        return;
         # try cereal        
         eval q{
             use Sereal qw(encode_sereal decode_sereal);
