@@ -5,7 +5,10 @@ use 5.008; # Perl::MinimumVersion says that
 
 use strict;
 use warnings;
-use Parallel::DataPipe::TempFile;
+use Storable;
+use IO::Select;
+use List::Util qw(first);
+use IO::Pipely qw(pipely);
 
 # input_iterator is either array or subroutine reference which puts data into conveyor    
 # convert it to sub ref anyway to simplify conveyor loop
@@ -22,22 +25,12 @@ sub _get_input_iterator {
     return $input_iterator;
 }
 
-# conveyor is platform dependent, default is POSIX implementation
-sub _create_data_process_conveyor {
-    my $platform = $^O;
-    my $class = __PACKAGE__ ."::$platform";
-    unless (eval("require $class;1") && $class->can('new')) {
-        $class = __PACKAGE__ ."::TempFile";
-        eval "require $class" unless $class->can('new');
-    }
-    return $class->new(@_);    
-}
 
 sub run {
     my $param = shift;
     my $input_iterator = _get_input_iterator(delete $param->{'input_iterator'});
     debug('run started!');
-    my $conveyor = _create_data_process_conveyor($param);
+    my $conveyor = Parallel::DataPipe->new($param);
     $SIG{ALRM} = 'IGNORE';
     # data processing conveyor. 
     while (defined(my $data = $input_iterator->())) {
@@ -51,28 +44,233 @@ sub run {
     debug('run finished');
 }
 
-use Data::Dump qw(dump);
-my $parent = $$;
-
-sub debug {
-	my ($format,@par) = @_;
-    return;
-	my ($package, $filename, $line) = caller;
-    my $str = sprintf("%s[%s]%s(%d) $format",
-        ($$ == $parent?'P':'C'),
-        $$,$filename,$line,
-        map {defined($_)?(ref($_)?dump($_):$_):'undef'} @par
-    );
-    return unless $str =~ m{process};
-    if (1) {
-        print STDERR "$str\n";
-
-    } else {
-        open my $fh, ">>","/tmp/$$";
-        printf $fh "[%s]%s(%d) $format\n",$$,$filename,$line,map {defined($_)?(ref($_)?dump($_):$_):'undef'} @par if $$==$parent;
-        close $fh;
-    }
+# this should work with Windows NT or if user explicitly set that
+my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS}; 
+sub number_of_cpu_cores {
+    #$number_of_cpu_cores = $_[0] if @_; # setter
+    return $number_of_cpu_cores if $number_of_cpu_cores;
+    eval {
+        # try unix (linux,cygwin,etc.)
+        $number_of_cpu_cores = scalar grep m{^processor\t:\s\d+\s*$},`cat /proc/cpuinfo 2>/dev/null`;
+        # try bsd
+        ($number_of_cpu_cores) = map m{hw.ncpu:\s+(\d+)},`sysctl -a` unless $number_of_cpu_cores;
+    };
+    # otherwise it sets number_of_cpu_cores to 2
+    return $number_of_cpu_cores || 1;
 }
+
+sub freeze {
+	my $self = shift;
+	$self->{freeze}->(@_);
+}
+
+sub thaw {
+	my $self = shift;
+	$self->{thaw}->(@_);
+}
+
+# this inits freeze and thaw with Storable subroutines and try to replace them with Sereal counterparts
+sub _init_serializer {
+    my ($self,$param) = @_;
+    my ($freeze,$thaw) = grep $_ && ref($_) eq 'CODE',map delete $param->{$_},qw(freeze thaw);
+    if ($freeze && $thaw) {
+        $self->{freeze} = $freeze;
+        $self->{thaw} = $thaw;
+    } else {
+        $self->{freeze} = \&Storable::nfreeze;
+        $self->{thaw} = \&Storable::thaw;
+        return;
+        # try cereal        
+        eval q{
+            use Sereal qw(encode_sereal decode_sereal);
+            $self->{freeze} = \&encode_sereal;
+            $self->{thaw} = \&decode_sereal;
+        };
+    }
+    # don't make any assumptions on serializer capabilities, give all the power to user ;)
+    # die "bad serializer!" unless join(",",@{$thaw->($freeze->([1,2,3]))}) eq '1,2,3';
+}
+
+
+# this subroutine reads data from pipe and converts it to perl reference
+# or scalar - if size is negative
+# it always expects size of frozen scalar so it know how many it should read
+# to feed thaw 
+sub _get_data {
+    my ($self,$fh) = @_;
+    my ($data_size,$data,$process_num);
+    $fh->sysread($data_size,4);
+    $data_size = unpack("l",$data_size);
+    if ($data_size == 0) {
+        $data = '';
+    } else {
+        $fh->sysread($data,abs($data_size));
+        $data = $self->thaw($data) if $data_size<0; 
+    }
+    return $data;
+}
+
+# this subroutine serialize data reference. otherwise 
+# it puts negative size of scalar and scalar itself to pipe.
+# parameter $process_num defined means it's child who is writing
+# to shared pipe to communicate with parent
+sub _put_data {
+    my ($self,$fh,$data) = @_;
+    my $length = length($data);
+    if (ref($data)) {
+        $data = $self->freeze($data);
+        $length = -length($data);
+    }
+    $fh->syswrite(pack("l", $length)); 
+    $fh->syswrite($data);
+}
+
+sub _fork_data_processor {
+    my ($data_processor_callback) = @_;
+    # create processor as fork
+    local $SIG{TERM} = sub {exit;}; # exit silently from data processors
+    my $pid = fork();
+    unless (defined $pid) {
+        #print "say goodbye - can't fork!\n"; <>;
+        die "can't fork!";
+    }
+    if ($pid == 0) {
+        # data processor is eternal loop which wait for raw data on pipe from main
+        # data processor is killed when it's not needed anymore by _kill_data_processors
+        $data_processor_callback->() while (1);
+        exit;
+    }
+    return $pid;
+}
+
+sub _create_data_processor {
+    my ($self,$process_data_callback,$process_num) = @_;
+    
+    # parent <=> child pipes
+    my ($parent_read, $parent_write) = pipely();
+    my ($child_read, $child_write) = pipely();
+ 
+    my $data_processor = sub {
+        local $_ = $self->_get_data($child_read);
+        $_ = $process_data_callback->($_);
+        $self->_put_data($parent_write,$_);
+    };
+    
+    # return data processor record 
+    return {
+        pid => _fork_data_processor($data_processor),  # needed to kill processor when there is no more data to process
+        child_write => $child_write,                 # pipe to write raw data from main to data processor 
+        parent_read => $parent_read,                 # pipe to write raw data from main to data processor 
+    };
+}
+
+sub _create_data_processors {
+    my ($self,$process_data_callback,$number_of_data_processors) = @_;
+    $number_of_data_processors = $self->number_of_cpu_cores unless $number_of_data_processors;
+    die "process_data parameter should be code ref" unless ref($process_data_callback) eq 'CODE';
+	die "\$number_of_data_processors:undefined" unless defined($number_of_data_processors);
+    return [map $self->_create_data_processor($process_data_callback,$_), 0..$number_of_data_processors-1];
+}
+
+sub process_data {
+	my ($self,$data) = @_;
+    debug('process data:%s',$data);
+    my $processor;
+    if ($self->{free_processors}) {
+        $processor = $self->{processors}[--$self->{free_processors}];
+    } else {
+        # wait for some processor which processed data
+        $processor = $self->receive_and_merge_data;
+    }
+    $processor->{item_number} = $self->{item_number}++;
+    $self->_put_data($processor->{child_write},$data);
+}
+
+# this method is called once when input data EOF.
+# to find out how many processors were involved in data processing
+# then it calls receive_and_merge_data 1..busy_processors times
+sub busy_processors {
+    my $self = shift;
+    return @{$self->{processors}} - $self->{free_processors};
+}
+
+sub receive_and_merge_data {
+	my $self = shift;
+    my ($processors,$data_merge_code,$ready) = @{$self}{qw(processors data_merge_code ready)};
+    $ready ||= [];
+    @$ready = IO::Select->new(map $_->{parent_read},@$processors)->can_read() unless @$ready;
+    my $fh = shift(@$ready);
+    my $processor = first {$_->{parent_read} == $fh} @$processors;
+    local $_ = $self->_get_data($fh);
+    $data_merge_code->($_,$processor->{item_number});
+    return $processor;
+}
+    
+sub _kill_data_processors {
+    my ($processors) = @_;
+    my @pid_to_kill = map $_->{pid}, @$processors;
+    my %pid_to_wait = map {$_=>undef} @pid_to_kill;
+    debug('killing data processors : %s',\@pid_to_kill);
+    kill('SIGTERM',@pid_to_kill);
+    while (keys %pid_to_wait) {
+        my $pid = wait;
+        last if $pid == -1;
+        delete $pid_to_wait{$pid};
+        debug('rip child %s',$pid);
+    }
+    debug('killed & ripped ok');
+}
+
+sub new {
+    my ($class, $param) = @_;
+	
+	my $self = {};
+    bless $self,$class;
+    
+    # merge item_number implementation
+    $self->{item_number} = 0;
+    
+    # check if user want to use alternative serialisation routines
+    $self->_init_serializer($param);    
+
+    # @$processors is array with data processor info
+    $self->{processors} = $self->_create_data_processors(
+        map delete $param->{$_},qw(process_data number_of_data_processors)
+    );
+    # this counts processors which are still not involved in processing data
+    $self->{free_processors} = @{$self->{processors}};
+    debug('free processors:%d',$self->{free_processors});
+    
+    # data_merge is sub which merge all processed data inside parent thread
+    # it is called each time after process_data returns some new portion of data    
+    $self->{data_merge_code} = delete $param->{'merge_data'};
+    die "data_merge should be code ref" unless ref($self->{data_merge_code}) eq 'CODE';
+    
+    my $not_supported = join ", ", keys %$param;
+    die "Parameters are not supported:". $not_supported if $not_supported;
+	
+	return $self;
+}
+
+sub DESTROY {
+	my $self = shift;
+    _kill_data_processors($self->{processors});
+    #semctl($self->{sem_id},0,IPC_RMID,0);
+}
+
+use Data::Dump qw(dump);
+use Time::HiRes qw(time);
+my $lt = time;
+sub debug {
+    $lt=time unless defined($lt);
+    return;
+	my ($format,@par) = @_;
+	my ($package, $filename, $line) = caller;
+	printf STDERR "%s[%5d](%d) $format\n",$filename,(time-$lt)*1000,$line,map {defined($_)?(ref($_)?dump($_):$_):'undef'} @par;
+    $lt=time;
+}
+
+
 
 1;
 

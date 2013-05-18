@@ -44,8 +44,8 @@ sub test_storable {
         input_iterator => [map [$_],@data],
         process_data => sub { [$_->[0]*2] },
         merge_data => sub { push @processed_data, $_; },
-        store => \&Storable::nstore,
-        retrieve => \&Storable::retrieve,
+        freeze => \&Storable::nfreeze,
+        thaw => \&Storable::thaw,
     };
     
     ok(@data==@processed_data,'length of processed Storable data');
@@ -77,7 +77,7 @@ sub test_scalar_values {
 sub test_serialized_data {
     print "\n***Testing if conveyor works ok with serizalized data...\n";
     # test pipe for serialized data
-    my @data = map [$_],1..2; 
+    my @data = map [$_],1..2000; 
     my @processed_data = ();
     Parallel::DataPipe::run {
         input_iterator => \@data,
@@ -248,7 +248,7 @@ sub max_buf_size { my $d = shift;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
     my $r = $free / $d;
     # put reasonable limit for max buf size
-    my $max_buf_size = 256 * $mb;
+    my $max_buf_size = 8 * $mb;
     $r = $max_buf_size if $r > $max_buf_size;
     return $r;
 }
