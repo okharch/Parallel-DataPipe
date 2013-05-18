@@ -1,30 +1,45 @@
 use 5.008;
 use ExtUtils::MakeMaker;
 use IO::Select;
-# lets check if pipe works here as intented
-print "check if fork & pipes work on a platform $^O...\n";
-eval {
-    pipe(my $pipe_read,my $pipe_write);    
+
+print "Check prerequisites...\n";
+die "IO::Pipely is required for this module" unless eval 'use IO::Pipely qw(pipely);1';
+
+print "Check if fork works on the platform...\n";
+my $fork_ok = eval {
     my $pid = fork();
     if ($pid == 0) {
-        print $pipe_write 'PIPE';
-        $pipe_write->flush();
         exit;
     }
-    my ($handle) = IO::Select->new($pipe_read)->can_read(0.1);
-    die "select returned no handle" unless $handle;
-    read($handle,my $buf, 4);
-    die "buffer was spoiled" unless $buf eq 'PIPE';
+    my $child = wait;
+    die "was not able to catch child!" unless $pid == $child;
     1;
-}  || die "Pipes does not work as intented on this platform, sorry($@)!";
-print "pipes looks good!\n";
+};
+die "Seems like fork does not work on the platform:\n$@" unless $fork_ok;
+
+print "Check if pipe works here as intented...\n";
+eval {
+    my ($pipe_read,$pipe_write) = pipely();
+    my $origin = 'PIPE';
+    $pipe_write->syswrite($origin);
+    $pipe_read->sysread(my $buf,length($origin));
+    die "Pipe read/write failed: content is corrupted" unless $buf eq $origin;
+    1;
+}  || die "Pipes does not work as intented on this platform, sorry:\n$@";
+
+print "Fork & pipes looks good!\n";
+
 # See lib/ExtUtils/MakeMaker.pm for details of how to influence
 # the contents of the Makefile that is written.
 WriteMakefile(
     NAME              => 'Parallel::DataPipe',
     VERSION_FROM      => 'lib/Parallel/DataPipe.pm', # finds $VERSION
-    PREREQ_PM         => {}, # e.g., Module::Name => 1.1
+    PREREQ_PM         => {
+        # e.g., Module::Name => 1.1
+        'IO::Pipely' => '0.002',
+    }, 
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
-      (ABSTRACT_FROM  => 'lib/Parallel/DataPipe.pm', # retrieve abstract from module
+     
+      (ABSTRACT => 'Parallel Data Processing Conveyor',
        AUTHOR         => 'Oleksandr Kharchenko <okharch@okharch.com>') : ()),
 );
