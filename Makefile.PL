@@ -1,9 +1,8 @@
 use 5.008;
 use ExtUtils::MakeMaker;
 use IO::Select;
-
-print "Check prerequisites...\n";
-die "IO::Pipely is required for this module" unless eval 'use IO::Pipely qw(pipely);1';
+use lib 'lib';
+use Parallel::DataPipe;
 
 print "Check if fork works on the platform...\n";
 my $fork_ok = eval {
@@ -19,7 +18,7 @@ die "Seems like fork does not work on the platform:\n$@" unless $fork_ok;
 
 print "Check if pipe works here as intented...\n";
 eval {
-    my ($pipe_read,$pipe_write) = pipely();
+    my ($pipe_read,$pipe_write) = Parallel::DataPipe::pipely();
     my $origin = 'PIPE';
     $pipe_write->syswrite($origin);
     $pipe_read->sysread(my $buf,length($origin));
@@ -36,7 +35,7 @@ WriteMakefile(
     VERSION_FROM      => 'lib/Parallel/DataPipe.pm', # finds $VERSION
     PREREQ_PM         => {
         # e.g., Module::Name => 1.1
-        'IO::Pipely' => '0.002',
+        #'IO::Pipely' => '0.002',
     }, 
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
      

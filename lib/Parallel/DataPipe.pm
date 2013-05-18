@@ -8,7 +8,6 @@ use warnings;
 use Storable;
 use IO::Select;
 use List::Util qw(first max min);
-use IO::Pipely qw(pipely);
 use constant PIPE_MAX_CHUNK_SIZE => ($^O eq 'MSWin32'?1024:16*1024);
 use constant _EOF_ => (-(1<<31));
 
@@ -267,6 +266,173 @@ sub DESTROY {
     $self->_kill_data_processors;
     #semctl($self->{sem_id},0,IPC_RMID,0);
 }
+
+=comment Why I copied IO::Pipely::pipely instead of use IO::Pipely qw(pipely)?
+1. Do not depend on installation of additional module
+2. I don't know (yet) how to win race condition:
+A) In Makefile.PL I would to check if fork & pipe works on the platform before creating Makefile.
+But I am not sure if it's ok that at that moment I can use pipely to create pipes.
+so
+B) to use pipely I have to create makefile
+For now I decided just copy code for pipely into this module.
+Then if I know how do win that race condition I will get rid of this code and
+will use IO::Pipely qw(pipely) instead and
+will add dependency on it.
+=cut
+use Symbol qw(gensym);
+use IO::Socket qw(
+  AF_UNIX
+  PF_INET
+  PF_UNSPEC
+  SOCK_STREAM
+  SOL_SOCKET
+  SOMAXCONN
+  SO_ERROR
+  SO_REUSEADDR
+  inet_aton
+  pack_sockaddr_in
+  unpack_sockaddr_in
+);
+use Fcntl qw(F_GETFL F_SETFL O_NONBLOCK);
+use Errno qw(EINPROGRESS EWOULDBLOCK);
+
+my (@oneway_pipe_types, @twoway_pipe_types);
+if ($^O eq "MSWin32" or $^O eq "MacOS") {
+  @oneway_pipe_types = qw(inet socketpair pipe);
+  @twoway_pipe_types = qw(inet socketpair pipe);
+}
+elsif ($^O eq "cygwin") {
+  @oneway_pipe_types = qw(pipe inet socketpair);
+  @twoway_pipe_types = qw(inet pipe socketpair);
+}
+else {
+  @oneway_pipe_types = qw(pipe socketpair inet);
+  @twoway_pipe_types = qw(socketpair inet pipe);
+}
+
+sub pipely {
+  my %arg = @_;
+
+  my $conduit_type = delete($arg{type});
+  my $debug        = delete($arg{debug}) || 0;
+
+  # Generate symbols to be used as filehandles for the pipe's ends.
+  #
+  # Filehandle autovivification isn't used for portability with older
+  # versions of Perl.
+
+  my ($a_read, $b_write)  = (gensym(), gensym());
+
+  # Try the specified conduit type only.  No fallback.
+
+  if (defined $conduit_type) {
+    return ($a_read, $b_write) if _try_oneway_type(
+      $conduit_type, $debug, \$a_read, \$b_write
+    );
+  }
+
+  # Otherwise try all available conduit types until one works.
+  # Conduit types that fail are discarded for speed.
+
+  while (my $try_type = $oneway_pipe_types[0]) {
+    return ($a_read, $b_write) if _try_oneway_type(
+      $try_type, $debug, \$a_read, \$b_write
+    );
+    shift @oneway_pipe_types;
+  }
+
+  # There's no conduit type left.  Bummer!
+
+  $debug and warn "nothing worked";
+  return;
+}
+
+# Try a pipe by type.
+
+sub _try_oneway_type {
+  my ($type, $debug, $a_read, $b_write) = @_;
+
+  # Try a pipe().
+  if ($type eq "pipe") {
+    eval {
+      pipe($$a_read, $$b_write) or die "pipe failed: $!";
+    };
+
+    # Pipe failed.
+    if (length $@) {
+      warn "pipe failed: $@" if $debug;
+      return;
+    }
+
+    $debug and do {
+      warn "using a pipe";
+      warn "ar($$a_read) bw($$b_write)\n";
+    };
+
+    # Turn off buffering.  POE::Kernel does this for us, but
+    # someone might want to use the pipe class elsewhere.
+    select((select($$b_write), $| = 1)[0]);
+    return 1;
+  }
+
+  # Try a UNIX-domain socketpair.
+  if ($type eq "socketpair") {
+    eval {
+      socketpair($$a_read, $$b_write, AF_UNIX, SOCK_STREAM, PF_UNSPEC)
+        or die "socketpair failed: $!";
+    };
+
+    if (length $@) {
+      warn "socketpair failed: $@" if $debug;
+      return;
+    }
+
+    $debug and do {
+      warn "using a UNIX domain socketpair";
+      warn "ar($$a_read) bw($$b_write)\n";
+    };
+
+    # It's one-way, so shut down the unused directions.
+    shutdown($$a_read,  1);
+    shutdown($$b_write, 0);
+
+    # Turn off buffering.  POE::Kernel does this for us, but someone
+    # might want to use the pipe class elsewhere.
+    select((select($$b_write), $| = 1)[0]);
+    return 1;
+  }
+
+  # Try a pair of plain INET sockets.
+  if ($type eq "inet") {
+    eval {
+      ($$a_read, $$b_write) = _make_socket();
+    };
+
+    if (length $@) {
+      warn "make_socket failed: $@" if $debug;
+      return;
+    }
+
+    $debug and do {
+      warn "using a plain INET socket";
+      warn "ar($$a_read) bw($$b_write)\n";
+    };
+
+    # It's one-way, so shut down the unused directions.
+    shutdown($$a_read,  1);
+    shutdown($$b_write, 0);
+
+    # Turn off buffering.  POE::Kernel does this for us, but someone
+    # might want to use the pipe class elsewhere.
+    select((select($$b_write), $| = 1)[0]);
+    return 1;
+  }
+
+  # There's nothing left to try.
+  $debug and warn "unknown pipely() socket type ``$type''";
+  return;
+}
+
 
 1;
 
