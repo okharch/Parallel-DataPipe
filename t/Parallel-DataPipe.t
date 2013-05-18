@@ -3,6 +3,7 @@ use warnings;
 
 use Test::More tests => 21;
 use Time::HiRes qw(time);
+
 BEGIN {
     use_ok('Parallel::DataPipe');
 };
@@ -46,6 +47,7 @@ exit 0;
 
 sub test_storable {
     print "\n***Testing if conveyor works ok with Storable nfreeze and thaw...\n";
+    eval q{use Storable;};
     my @data = 1..1000; 
     my @processed_data = ();
     Parallel::DataPipe::run {

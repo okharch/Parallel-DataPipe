@@ -5,7 +5,6 @@ use 5.008; # Perl::MinimumVersion says that
 
 use strict;
 use warnings;
-use Storable;
 use IO::Select;
 use List::Util qw(first max min);
 use constant PIPE_MAX_CHUNK_SIZE => ($^O eq 'MSWin32'?1024:16*1024);
@@ -74,14 +73,20 @@ sub _init_serializer {
         $self->{freeze} = $freeze;
         $self->{thaw} = $thaw;
     } else {
-        $self->{freeze} = \&Storable::nfreeze;
-        $self->{thaw} = \&Storable::thaw;
         # try cereal        
         eval q{
             use Sereal qw(encode_sereal decode_sereal);
             $self->{freeze} = \&encode_sereal;
             $self->{thaw} = \&decode_sereal;
+            1;
+        }
+        or
+        eval q{
+            use Storable;
+            $self->{freeze} = \&Storable::nfreeze;
+            $self->{thaw} = \&Storable::thaw; 
         };
+        
     }
     # don't make any assumptions on serializer capabilities, give all the power to user ;)
     # die "bad serializer!" unless join(",",@{$thaw->($freeze->([1,2,3]))}) eq '1,2,3';
@@ -279,6 +284,7 @@ Then if I know how do win that race condition I will get rid of this code and
 will use IO::Pipely qw(pipely) instead and
 will add dependency on it.
 =cut
+# IO::Pipely is copyright 2000-2012 by Rocco Caputo.
 use Symbol qw(gensym);
 use IO::Socket qw(
   AF_UNIX
