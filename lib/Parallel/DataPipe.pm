@@ -7,7 +7,7 @@ use strict;
 use warnings;
 use IO::Select;
 use List::Util qw(first max min);
-use constant PIPE_MAX_CHUNK_SIZE => ($^O eq 'MSWin32'?1024:16*1024);
+use constant PIPE_MAX_CHUNK_SIZE => $^O =~ m{linux}?16*1024:1024;
 use constant _EOF_ => (-(1<<31));
 
 # input_iterator is either array or subroutine reference which puts data into conveyor    
