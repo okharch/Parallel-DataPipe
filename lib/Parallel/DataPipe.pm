@@ -1,13 +1,13 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.04';
+our $VERSION='0.05';
 use 5.008; # Perl::MinimumVersion says that
 
 use strict;
 use warnings;
 use IO::Select;
 use List::Util qw(first max min);
-use constant PIPE_MAX_CHUNK_SIZE => $^O =~ m{linux|cygwin}?16*1024:1024;
+use constant PIPE_MAX_CHUNK_SIZE => $^O =~ m{linux|cygwin}? 16*1024 : 1024;
 use constant _EOF_ => (-(1<<31));
 
 # input_iterator is either array or subroutine reference which puts data into conveyor    

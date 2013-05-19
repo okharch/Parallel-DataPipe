@@ -1,4 +1,7 @@
 Revision history for Perl extension Parallel::DataPipe.
+0.05  Sun May  19
+    - minor fix to PIPE_MAX_CHUNK_SIZE: be pessimistic unless good news for the platform.
+      16Kb for Linux & Cygwin, 1Kb for others. This allowed test to be passed for OpenBSD
 0.04  Sat May  18
     - at last! multiplatform implementation. tests are passed for MSWin32, Freebsd, Cygwin, Linux
 0.03  Tue May  14 2013
