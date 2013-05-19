@@ -12,10 +12,7 @@ my $kb = 1024;
 my $mb = $kb * $kb;
 my $win32 = $^O eq 'MSWin32';
 
-my $max_buf_size = $win32?
-    8 * $mb  # trying figure out numbers for stable work :)
-    :
-    8 * $mb; # 8mb for others
+my $max_buf_size = 512 * $kb;
 
 
 #printf "You may top -p%s\n",$$;sleep(2);
@@ -256,7 +253,7 @@ sub max_buf_size { my $d = shift;
     eval {
         ($memtotal,$memused) = map m{Mem:\s+(\d+)\s+(\d+)}, `free -b 2>/dev/null`;
     };
-    my $free = defined($memtotal)?$memtotal-$memused:32*$kb*$kb;
+    my $free = defined($memtotal)?$memtotal-$memused:8*$mb;
     #print '$memtotal,$memused,$free:'."$memtotal,$memused,$free\n";
     my $r = $free / $d;
     # put reasonable limit for max buf size
