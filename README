@@ -20,7 +20,7 @@ DEPENDENCIES
 
 It depends only on Core Perl modules now.
 
-If found it uses Sereal module for serialization instead of Storable as it is more efficient.
+if found it uses Sereal module for serialization instead of Storable as the former is more efficient.
 
 SOURCE REPOSITORY
 

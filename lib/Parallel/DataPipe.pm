@@ -99,7 +99,7 @@ sub _init_serializer {
 # to feed thaw 
 sub _get_data {
     my ($self,$fh) = @_;
-    my ($data_size,$data,$process_num);
+    my ($data_size,$data);
     $fh->sysread($data_size,4);
     $data_size = unpack("l",$data_size);
     return undef if $data_size == _EOF_; # this if for process_data terminating
@@ -124,8 +124,6 @@ sub _get_data {
 
 # this subroutine serialize data reference. otherwise 
 # it puts negative size of scalar and scalar itself to pipe.
-# parameter $process_num defined means it's child who is writing
-# to shared pipe to communicate with parent
 sub _put_data {
     my ($self,$fh,$data) = @_;
     unless (defined($data)) {
@@ -166,7 +164,7 @@ sub _fork_data_processor {
 }
 
 sub _create_data_processor {
-    my ($self,$process_data_callback,$process_num) = @_;
+    my ($self,$process_data_callback) = @_;
     
     # parent <=> child pipes
     my ($parent_read, $parent_write) = pipely();
@@ -576,24 +574,13 @@ L<POE> - portable multitasking and networking framework for any event loop
 
 =head1 DEPENDENCIES
 
-These should all be in perl's core:
-
- use Storable qw(freeze thaw);
- use IO::Select;
- use POSIX ":sys_wait_h";
-
-
-For tests:
-
- use Test::More tests => 21;
- use Time::HiRes qw(time);
-
+Only core modules are used.
 
 if found it uses Sereal module for serialization instead of Storable as the former is more efficient.
 
 =head1 BUGS 
 
-For all bugs small and big and also what do you think about this stuff please send email to okharch@gmail.com.
+For all bugs please send an email to okharch@gmail.com.
 
 =head1 SOURCE REPOSITORY
 
