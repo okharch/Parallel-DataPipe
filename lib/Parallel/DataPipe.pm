@@ -1,6 +1,6 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.05';
+our $VERSION='0.06';
 use 5.008; # Perl::MinimumVersion says that
 
 use strict;
@@ -10,34 +10,86 @@ use List::Util qw(first max min);
 use constant PIPE_MAX_CHUNK_SIZE => $^O =~ m{linux|cygwin}? 16*1024 : 1024;
 use constant _EOF_ => (-(1<<31));
 
-# input_iterator is either array or subroutine reference which puts data into conveyor    
-# convert it to sub ref anyway to simplify conveyor loop
-sub _get_input_iterator {
-    my $input_iterator = shift;
-    die "input_iterator is required parameter" unless defined($input_iterator);
-    unless (ref($input_iterator) eq 'CODE') {
-        die "array or code reference expected for input_iterator" unless ref($input_iterator) eq 'ARRAY';
-        my $array = $input_iterator;
-        my $l = @$array;
-        my $i = 0;
-        $input_iterator = sub {$i < $l? $array->[$i++]:undef};
-    }
-    return $input_iterator;
-}
-
-
 sub run {
-    my $param = shift;
-    my $input_iterator = _get_input_iterator(delete $param->{'input_iterator'});
+    my $param = {};
+    my ($input,$map,$output) = @_;
+    if (ref($input) eq 'HASH') {
+        $param = $input;
+    } else {
+        $param = {input=>$input, process=>$map, output=>$output };
+    }
+    
     my $conveyor = Parallel::DataPipe->new($param);
     $SIG{ALRM} = 'IGNORE';
     # data processing conveyor. 
-    while (defined(my $data = $input_iterator->())) {
-        $conveyor->process_data($data);
-    }    
-    # receive and merge remaining data from busy processors
-    my $busy_processors = $conveyor->busy_processors;
-    $conveyor->receive_and_merge_data() while $busy_processors--;
+    while ($conveyor->load_data) {
+        $conveyor->receive_and_merge_data unless $conveyor->free_processors;
+    }
+    $conveyor->receive_and_merge_data() while $conveyor->busy_processors;
+    
+    return unless defined wantarray;
+    my $result = $conveyor->{output} || [];
+    return wantarray? @$result : $result;
+}
+
+# input_iterator is either array or subroutine reference which get's data from queue or other way and returns it
+# if there is no data it returns undef
+sub input_iterator {
+    my $self = shift;
+    $self->{input_iterator}->(@_);
+}
+
+sub output_iterator {
+    my $self = shift;
+    $self->{output_iterator}->(@_)
+}
+
+# this is to set/create input iterator
+sub set_input_iterator {
+    my ($self,$param) = @_;
+    my $old_behaviour = $param->{input_iterator};
+    my ($input_iterator) = extract_param($param, qw(input_iterator input queue data));
+    unless (ref($input_iterator) eq 'CODE') {
+        die "array or code reference expected for input_iterator" unless ref($input_iterator) eq 'ARRAY';
+        my $queue = $input_iterator;
+        $self->{input} = $queue;
+        if ($old_behaviour) {
+            my $l = @$queue;
+            my $i = 0;
+            $input_iterator = sub {$i<$l?$queue->[$i++]:undef};
+        } else {
+            # this behaviour is introduced with 0.06
+            $input_iterator = sub {$queue?shift(@$queue):undef};
+        }
+    }
+    $self->{input_iterator} = $input_iterator;
+}
+
+sub set_output_iterator {
+    my ($self,$param) = @_;
+    my ($output_iterator) = extract_param($param, qw(merge_data output_iterator output output_queue output_data merge reduce));
+    unless (ref($output_iterator) eq 'CODE') {
+        my $queue = $output_iterator || [];
+        $self->{output} = $queue;
+        $output_iterator = sub {push @$queue,$_};
+    }
+    $self->{output_iterator} = $output_iterator;    
+}
+
+# loads all free processor with data from input
+# return the number of loaded processors
+sub load_data {
+    my $self = shift;
+    my @free_processors = $self->free_processors;
+    my $result = 0;
+    for my $processor (@free_processors) {
+        my $data = $self->input_iterator;
+        # return number of processors loaded
+        return $result unless defined($data);
+        $result++;
+        $self->load_data_processor($data,$processor);
+    }
+    return $result;
 }
 
 # this should work with Windows NT or if user explicitly set that
@@ -66,7 +118,7 @@ sub thaw {
 }
 
 # this inits freeze and thaw with Storable subroutines and try to replace them with Sereal counterparts
-sub _init_serializer {
+sub init_serializer {
     my ($self,$param) = @_;
     my ($freeze,$thaw) = grep $_ && ref($_) eq 'CODE',map delete $param->{$_},qw(freeze thaw);
     if ($freeze && $thaw) {
@@ -186,46 +238,49 @@ sub _create_data_processor {
     };
 }
 
-sub _create_data_processors {
-    my ($self,$process_data_callback,$number_of_data_processors) = @_;
+sub extract_param {
+    my ($param, @alias) = @_;
+    return first {defined($_)} map delete($param->{$_}), @alias;
+}
+
+sub create_data_processors {
+    my ($self,$param) = @_;
+    my $process_data_callback = extract_param($param,qw(process_data process processor map));
+    my $number_of_data_processors = extract_param($param,qw(number_of_data_processors number_of_processors));
     $number_of_data_processors = $self->number_of_cpu_cores unless $number_of_data_processors;
     die "process_data parameter should be code ref" unless ref($process_data_callback) eq 'CODE';
 	die "\$number_of_data_processors:undefined" unless defined($number_of_data_processors);
     return [map $self->_create_data_processor($process_data_callback,$_), 0..$number_of_data_processors-1];
 }
 
-sub process_data {
-	my ($self,$data) = @_;
-    my $processor;
-    if ($self->{free_processors}) {
-        $processor = $self->{processors}[--$self->{free_processors}];
-    } else {
-        # wait for some processor which processed data
-        $processor = $self->receive_and_merge_data;
-    }
+sub load_data_processor {
+	my ($self,$data,$processor) = @_;
     $processor->{item_number} = $self->{item_number}++;
     die "no support of data processing for undef items!" unless defined($data);
+    $processor->{busy} = 1;
     $self->_put_data($processor->{child_write},$data);
 }
 
-# this method is called once when input data is ended
-# to find out how many processors were involved in data processing
-# then it calls receive_and_merge_data 1..busy_processors times
 sub busy_processors {
     my $self = shift;
-    return @{$self->{processors}} - $self->{free_processors};
+    return grep $_->{busy}, @{$self->{processors}};
+}
+
+sub free_processors {
+    my $self = shift;
+    return grep !$_->{busy}, @{$self->{processors}};    
 }
 
 sub receive_and_merge_data {
 	my $self = shift;
     my ($processors,$data_merge_code,$ready) = @{$self}{qw(processors data_merge_code ready)};
     $self->{ready} = $ready = [] unless $ready;
-    @$ready = IO::Select->new(map $_->{parent_read},@$processors)->can_read() unless @$ready;
+    @$ready = IO::Select->new(map $_->{busy} && $_->{parent_read},@$processors)->can_read() unless @$ready;
     my $fh = shift(@$ready);
     my $processor = first {$_->{parent_read} == $fh} @$processors;
     local $_ = $self->_get_data($fh);
-    $data_merge_code->($_,$processor->{item_number});
-    return $processor;
+    $processor->{busy} = undef;
+    $self->output_iterator($_,$processor->{item_number});
 }
     
 sub _kill_data_processors {
@@ -245,23 +300,19 @@ sub _kill_data_processors {
 sub new {
     my ($class, $param) = @_;	
 	my $self = {};
-    bless $self,$class;    
+    bless $self,$class;
+    $self->set_input_iterator($param);
     # item_number for merge implementation
     $self->{item_number} = 0;    
     # check if user want to use alternative serialisation routines
-    $self->_init_serializer($param);    
+    $self->init_serializer($param);    
     # @$processors is array with data processor info
-    $self->{processors} = $self->_create_data_processors(
-        map delete $param->{$_},qw(process_data number_of_data_processors)
-    );
-    # this counts processors which are still not involved in processing data
-    $self->{free_processors} = @{$self->{processors}};    
+    $self->{processors} = $self->create_data_processors($param);
     # data_merge is sub which merge all processed data inside parent thread
     # it is called each time after process_data returns some new portion of data    
-    $self->{data_merge_code} = delete $param->{'merge_data'};
-    die "data_merge should be code ref" unless ref($self->{data_merge_code}) eq 'CODE';    
+    $self->set_output_iterator($param);
     my $not_supported = join ", ", keys %$param;
-    die "Parameters are not supported:". $not_supported if $not_supported;	
+    die "Parameters are redundant or not supported:". $not_supported if $not_supported;	
 	return $self;
 }
 
@@ -501,18 +552,33 @@ Take into account that 1) and 3) is executed in main script thread. While all 2)
 This is subroutine which covers magic of parallelizing data processing.
 It receives paramaters with these keys via hash ref.
 
-B<input_iterator> - reference to array or subroutine which should return data item to be processed.
+B<input> - reference to array or subroutine which should return data item to be processed.
     in case of subroutine it should return undef to signal EOF.
+    In case of array it uses it as queue, i.e. shift(@$array) until there is no data item,
+    This behaviour has been introduced in 0.06.
+    Also you can use these aliases:
+    input_iterator, queue, data
+    
+    Note: in version before 0.06 it was input_iterator and if reffered to array it remained untouched.
+    while new behaviour is to treat this parameter like a queue.
+    0.06 support old behaviour only for input_iterator,
+    while in the future it will behave as a queue to make life easier
 
-B<process_data> - reference to subroutine which process data items. they are passed via $_ variable
+B<process> - reference to subroutine which process data items. they are passed via $_ variable
 	Then it should return processed data. this subroutine is executed in forked process so don't
     use any shared resources inside it.
     Also you can update children state, but it will not affect parent state.
-
-B<merge_data> - reference to a subroutine which receives data item which was processed  in $_ and now going to be merged
-	this subroutine is executed in parent thread, so you can rely on changes that it made after C<process_data> completion.
+    Also you can use these aliases:
+    process_data process processor map
 
 These parameters are optional and has reasonable defaults, so you change them only know what you do
+
+B<output> - optional. either reference to a subroutine or array which receives processed data item.
+    subroutine can use $_ or $_[0] to access data item and $_[1] to access item_number.
+	this subroutine is executed in parent thread, so you can rely on changes that it made.
+    if you don't specify this parameter array with processed data can be received as a subroutine result.
+    You can use this aliseases for this parameter:
+    merge_data, output_iterator, output, output_queue, output_data, merge, reduce
 
 B<number_of_data_processors> - (optional) number of parallel data processors. if you don't specify,
     it tries to find out a number of cpu cores
@@ -534,6 +600,11 @@ B<freeze>, B<thaw> - you can use alternative serializer.
     It uses encode_sereal and decode_sereal if Sereal module is found.
     Otherwise it use Storable freeze and thaw.
 
+Note: run has also undocumented prototype for calling (\@\$) i.e.
+    
+    my @x2 = Parallel::DataPipe::run([1..100],sub {$_*2});
+    
+This prototype is not guaranteed to be supported. Use it at your own risk.
 =head2 HOW IT WORKS
 
 1) Main thread (parent) forks C<number_of_data_processors> of children for processing data.
