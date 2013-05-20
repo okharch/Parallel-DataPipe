@@ -4,4 +4,5 @@ MANIFEST
 README
 t/pod.t
 t/Parallel-DataPipe.t
+t/style-trailing-space.t
 lib/Parallel/DataPipe.pm
