@@ -1,4 +1,8 @@
 Revision history for Perl extension Parallel::DataPipe.
+0.06  Mon May  20
+    - interface and behaviour of Parallel::DataPipe::run has been changed. See
+    https://github.com/okharch/Parallel-DataPipe/commit/d99a9cb2078e32dfb37d80e24c335f0006184639
+    for details
 0.05  Sun May  19
     - minor fix to PIPE_MAX_CHUNK_SIZE: be pessimistic unless good news for the platform.
       16Kb for Linux & Cygwin, 1Kb for others. This allowed test to be passed for OpenBSD

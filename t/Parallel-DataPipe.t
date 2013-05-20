@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 21;
+use Test::More tests => 25;
 use Time::HiRes qw(time);
 
 BEGIN {
@@ -21,6 +21,7 @@ my $max_buf_size = 512 * $kb;
 my $number_of_data_processors = 32;
 my $n_items = 4; # number of large item to process
 
+test_old_behaviour();
 test_serialized_data();
 test_storable(); # test with standard serializer
 test_scalar_values();
@@ -45,12 +46,12 @@ exit 0;
 sub test_storable {
     print "\n***Testing if conveyor works ok with Storable nfreeze and thaw...\n";
     eval q{use Storable;};
-    my @data = 1..1000; 
+    my @data = 1..1000;
     my @processed_data = ();
     Parallel::DataPipe::run {
-        input_iterator => [map [$_],@data],
-        process_data => sub { [$_->[0]*2] },
-        merge_data => sub { push @processed_data, $_; },
+        input => [map [$_],@data],
+        process => sub { [$_->[0]*2] },
+        output => sub { push @processed_data, $_; },
         freeze => \&Storable::nfreeze,
         thaw => \&Storable::thaw,
     };
@@ -67,16 +68,16 @@ sub test_storable {
 
 sub test_scalar_values {
     print "\n***Testing if conveyor works ok with simple scalar data...\n";
-    my @data = 1..10000; 
-    my @processed_data = ();
-    Parallel::DataPipe::run {
-        input_iterator => \@data,
-        process_data => sub { $_*2 },
-        merge_data => sub { push @processed_data, $_; },
+    my @data = 1..10000;
+    my @cdata = @data;
+    my @processed_data = Parallel::DataPipe::run {
+        input => \@data,
+        process => sub { $_*2 },
     };
     
-    ok(@data==@processed_data,'length of processed scalar data');
-    ok(join(",",map $_*2, @data) eq join(",",sort {$a <=> $b} @processed_data),"processed scalar data values");
+    ok(@data==0,'length of input queue is empty');
+    ok(@cdata==@processed_data,'length of processed scalar data');
+    ok(join(",",map $_*2, @cdata) eq join(",",sort {$a <=> $b} @processed_data),"processed scalar data values");
     #printf "processed data:%s\n",join ",",@processed_data;
     ok(zombies() == 0,'no zombies');
 }
@@ -85,18 +86,31 @@ sub test_serialized_data {
     print "\n***Testing if conveyor works ok with serizalized data...\n";
     # test pipe for serialized data
     my @data = map [$_],1..10; 
-    my @processed_data = ();
-    Parallel::DataPipe::run {
-        input_iterator => \@data,
-        process_data => sub {
+    my @processed_data = Parallel::DataPipe::run(
+        [@data],
+        sub {
             [$_->[0]*2];
         },
-        merge_data => sub { push @processed_data, $_; },
-    };
+    );
     
     ok(@data==@processed_data,'length of processed serialized data');
     ok(join(",",map $_->[0]*2, @data) eq join(",",sort {$a <=> $b} map $_->[0],@processed_data),"processed serialized data values");
     ok(zombies() == 0,'no zombies');
+}
+
+sub test_old_behaviour {
+    my @data = 1..100;
+    print "\n*** Test if input_iterator as array ref still has old behaviour...\n";
+    my @processed = Parallel::DataPipe::run( {
+        input_iterator => \@data,
+        process_data => sub {$_},
+    });
+    ok(@data==@processed,"input_data remains \@data untouched - only reads");
+    @processed = Parallel::DataPipe::run( {
+        input => \@data,
+        process_data => sub {$_},
+    });
+    ok(@data==0,"while <input> has behaviour of queue - in the end it is empty");
 }
 
 sub test_large_data_receive {
@@ -106,20 +120,20 @@ sub test_large_data_receive {
     print "\n***Testing if data processor receives ok $big buffer wrapped into [$n_items] array...\n";
     my $large_data_buf = sprintf("%${large_data_size}s"," ");
     my @data = map [$large_data_buf],1..$n_items;
+    my $input_length=@data;
     $large_data_buf =~ s/ {8}/!!!!!!!!/;
-    my @processed_data = ();
     my $time = time();
-    Parallel::DataPipe::run {
-        input_iterator => \@data,
-        process_data => sub { $_->[0] =~ s/ {8}/!!!!!!!!/;my $ret = $_->[0] eq $large_data_buf?1:0;undef $_; $ret },
+    my @processed_data = Parallel::DataPipe::run {
+        input => \@data,
+        process => sub { $_->[0] =~ s/ {8}/!!!!!!!!/;my $ret = $_->[0] eq $large_data_buf?1:0;undef $_; $ret },
         number_of_data_processors => 4,
-        merge_data => sub { push @processed_data, $_; },
     };
     my $elapsed = time - $time;
     #print substr($large_data_buf,0,20)."#\n";
     #print substr($processed_data[0][0],0,20)."#\n";
-    ok(@data==@processed_data,"length of received $big data");
-    ok(grep($_ == 1,@processed_data) == @data,"received $big data values");
+    ok(@data==0,"input queue was emptied");
+    ok($input_length==@processed_data,"length of received $big data");
+    ok(grep($_ == 1,@processed_data) == $input_length,"received $big data values");
     ok(zombies() == 0,'no zombies');
     # try to clean memory
     undef $_;
