@@ -1,4 +1,6 @@
 Revision history for Perl extension Parallel::DataPipe.
+
+    - Add t/pod.t and fix broken POD. (-- Shlomi Fish)
 0.06  Mon May  20
     - interface and behaviour of Parallel::DataPipe::run has been changed. See
     https://github.com/okharch/Parallel-DataPipe/commit/d99a9cb2078e32dfb37d80e24c335f0006184639

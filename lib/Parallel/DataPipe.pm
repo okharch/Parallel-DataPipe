@@ -322,7 +322,9 @@ sub DESTROY {
     #semctl($self->{sem_id},0,IPC_RMID,0);
 }
 
-=comment Why I copied IO::Pipely::pipely instead of use IO::Pipely qw(pipely)?
+=begin comment
+
+Why I copied IO::Pipely::pipely instead of use IO::Pipely qw(pipely)?
 1. Do not depend on installation of additional module
 2. I don't know (yet) how to win race condition:
 A) In Makefile.PL I would to check if fork & pipe works on the platform before creating Makefile.
@@ -333,7 +335,11 @@ For now I decided just copy code for pipely into this module.
 Then if I know how do win that race condition I will get rid of this code and
 will use IO::Pipely qw(pipely) instead and
 will add dependency on it.
+
+=end comment
+
 =cut
+
 # IO::Pipely is copyright 2000-2012 by Rocco Caputo.
 use Symbol qw(gensym);
 use IO::Socket qw(

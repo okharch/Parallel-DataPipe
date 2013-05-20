@@ -2,5 +2,6 @@ Changes
 Makefile.PL
 MANIFEST
 README
+t/pod.t
 t/Parallel-DataPipe.t
 lib/Parallel/DataPipe.pm
