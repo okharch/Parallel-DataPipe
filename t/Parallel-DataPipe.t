@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 25;
+use Test::More tests => 23;
 use Time::HiRes qw(time);
 
 BEGIN {
@@ -26,7 +26,7 @@ test_serialized_data();
 test_storable(); # test with standard serializer
 test_scalar_values();
 
-test_processor_number();
+#test_processor_number();
 #test_other_children_survive();
 
 # before testing big data let's top to see memory occupied
