@@ -20,7 +20,6 @@ sub run {
     }
     
     my $conveyor = Parallel::DataPipe->new($param);
-    $SIG{ALRM} = 'IGNORE';
     # data processing conveyor. 
     while ($conveyor->load_data) {
         $conveyor->receive_and_merge_data unless $conveyor->free_processors;
@@ -30,6 +29,53 @@ sub run {
     return unless defined wantarray;
     my $result = $conveyor->{output} || [];
     return wantarray? @$result : $result;
+}
+
+sub pipeline {
+    my $class=shift;
+    if (ref($class) eq 'HASH') {
+        unshift @_, $class;
+        $class = __PACKAGE__;
+    }
+    debug('class:%s',$class);
+    my @pipes;
+    # init pipes
+    my $default_input;
+    for my $param (@_) {
+        unless (exists $param->{input}) {
+            $param->{input} = $default_input or die "You have to specify input for the first pipe";            
+        }
+        my $pipe = $class->new($param);
+        if (ref($pipe->{output}) eq 'ARRAY') {
+            $default_input = $pipe->{output};
+        }
+        push @pipes, $pipe;
+    }
+    run_pipes(0,@pipes);
+    return unless defined(wantarray);
+    my $result = $pipes[$#pipes]->{output};
+    return unless $result;
+    return wantarray?@$result:$result;
+}
+
+sub run_pipes {
+    my ($parent_busy,$me,@children) = @_;
+    my $me_busy = 1;
+    while ($me_busy) {
+        my $data_loaded = $me->load_data;
+        $me->receive_and_merge_data;
+        my $me_busy = $me->busy_processors;
+        my $children_busy = @children && run_pipes($parent_busy || $me_busy,@children);
+        $me_busy ||= $children_busy;
+        return $me_busy if $parent_busy && $me->free_processors;
+    }
+    return 0;
+}
+
+sub filled_with_data {
+    my $self = shift;
+    $self->receive_and_merge_data;
+    return $self->load_data;
 }
 
 # input_iterator is either array or subroutine reference which get's data from queue or other way and returns it
@@ -322,6 +368,18 @@ sub DESTROY {
     #semctl($self->{sem_id},0,IPC_RMID,0);
 }
 
+use Data::Dump qw(dump);
+use Time::HiRes qw(time);
+my $lt = time;
+sub debug {
+    $lt=time unless defined($lt);
+    #return;
+	my ($format,@par) = @_;
+	my ($package, $filename, $line) = caller;
+	printf STDERR "%s[%5d](%d) $format\n",$filename,(time-$lt)*1000,$line,map {defined($_)?(ref($_)?dump($_):$_):'undef'} @par;
+    $lt=time;
+}
+
 =comment Why I copied IO::Pipely::pipely instead of use IO::Pipely qw(pipely)?
 1. Do not depend on installation of additional module
 2. I don't know (yet) how to win race condition:
@@ -502,10 +560,10 @@ C<Parallel::DataPipe> - parallel data processing conveyor
 
     use Parallel::DataPipe;
     Parallel::DataPipe::run {
-        input_iterator => [1..100],
-        process_data => sub { "$_:$$" },
+        input => [1..100],
+        process => sub { "$_:$$" },
         number_of_data_processors => 100,
-        merge_data => sub { print "$_\n" },
+        output => sub { print "$_\n" },
     };
     
 
@@ -569,7 +627,7 @@ B<process> - reference to subroutine which process data items. they are passed v
     use any shared resources inside it.
     Also you can update children state, but it will not affect parent state.
     Also you can use these aliases:
-    process_data process processor map
+    process_data
 
 These parameters are optional and has reasonable defaults, so you change them only know what you do
 
@@ -578,7 +636,7 @@ B<output> - optional. either reference to a subroutine or array which receives p
 	this subroutine is executed in parent thread, so you can rely on changes that it made.
     if you don't specify this parameter array with processed data can be received as a subroutine result.
     You can use this aliseases for this parameter:
-    merge_data, output_iterator, output, output_queue, output_data, merge, reduce
+    merge_data, merge
 
 B<number_of_data_processors> - (optional) number of parallel data processors. if you don't specify,
     it tries to find out a number of cpu cores
@@ -600,11 +658,11 @@ B<freeze>, B<thaw> - you can use alternative serializer.
     It uses encode_sereal and decode_sereal if Sereal module is found.
     Otherwise it use Storable freeze and thaw.
 
-Note: run has also undocumented prototype for calling (\@\$) i.e.
+Note: run can also be called like this
     
     my @x2 = Parallel::DataPipe::run([1..100],sub {$_*2});
     
-This prototype is not guaranteed to be supported. Use it at your own risk.
+This feature is considered as experimental. Use it at your own risk.
 =head2 HOW IT WORKS
 
 1) Main thread (parent) forks C<number_of_data_processors> of children for processing data.

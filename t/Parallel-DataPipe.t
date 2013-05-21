@@ -21,6 +21,7 @@ my $max_buf_size = 512 * $kb;
 my $number_of_data_processors = 32;
 my $n_items = 4; # number of large item to process
 
+test_pipeline();
 test_old_behaviour();
 test_serialized_data();
 test_storable(); # test with standard serializer
@@ -273,4 +274,15 @@ sub max_buf_size { my $d = shift;
     # put reasonable limit for max buf size
     $r = $max_buf_size if $r > $max_buf_size;
     return $r;
+}
+
+sub test_pipeline {
+    my @queue = 1..5;
+    my @data = @queue;
+    my @processed = sort {$a <=> $b} Parallel::DataPipe->pipeline(
+        {input=>\@queue,process=>sub {$_*2}},
+        {process=>sub {$_*3}},
+    );
+    ok(@processed==@data,"processed data length ok");
+    ok(join(",",@processed) eq join(",",map $_*6,@data),"processed data values ok");
 }
