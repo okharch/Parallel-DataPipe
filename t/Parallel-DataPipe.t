@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 23;
+use Test::More tests => 26;
 use Time::HiRes qw(time);
 
 BEGIN {
@@ -21,7 +21,8 @@ my $max_buf_size = 512 * $kb;
 my $number_of_data_processors = 32;
 my $n_items = 4; # number of large item to process
 
-test_pipeline();
+$\="\n";
+
 test_old_behaviour();
 test_serialized_data();
 test_storable(); # test with standard serializer
@@ -39,6 +40,7 @@ test_large_data_send(); # this test is fork ability killer, memory expander, can
 test_large_data_receive(); # this test is fork ability killer, memory expander, can't make a (lot of) fork after it
 
 test_large_data_process(); # this test is fork ability killer, memory expander, can't make a (lot of) fork after it
+test_pipeline();
 
 print "\n***Done!\n";
 
@@ -277,12 +279,15 @@ sub max_buf_size { my $d = shift;
 }
 
 sub test_pipeline {
-    my @queue = 1..5;
+    print "\n*** Testing pipeline() ...\n";
+    my @queue = 1..500;
     my @data = @queue;
     my @processed = sort {$a <=> $b} Parallel::DataPipe->pipeline(
         {input=>\@queue,process=>sub {$_*2}},
         {process=>sub {$_*3}},
     );
+        
     ok(@processed==@data,"processed data length ok");
     ok(join(",",@processed) eq join(",",map $_*6,@data),"processed data values ok");
+    ok(zombies() == 0,'no zombies');
 }
