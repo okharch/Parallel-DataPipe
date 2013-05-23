@@ -1,6 +1,6 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.07';
+our $VERSION='0.08';
 use 5.008; # Perl::MinimumVersion says that
 
 use strict;
@@ -654,7 +654,38 @@ Note: run can also be called like this
 This feature is considered as experimental. Use it at your own risk.
 
 =head2 pipeline
-  Here is parallel grep implemented in 40 lines of perl code:
+  
+pipeline() is a chain of run() (parallel data pipes) executed in parallel
+and input for next pipe is implicitly got from previous one.
+  
+  run {input => \@queue, process => \&process, output => \@out}
+  
+is the same as
+  
+  pipeline {input => \@queue, process => \&process, output => \@out}
+  
+But with pipeline you can create chain of connected pipes and run all of them in parallel
+like it's done in unix with processes pipeline.
+
+  pipeline(
+    { input => \@queue, process => \&process1},
+    { process => \&process2},
+    { process => \&process3, output => sub {print "$_\n";} },
+  );
+  
+And it works like in unix - input of next pipe is (implicitly) set to output from previous pipe.
+You have to specify input for the first pipe explicitly (see example of parallel grep 'hello' below ).
+
+If you don't specify input for next pipe it is assumed that it is output from previous pipe like in unix.
+Also this assumption that input of next pipe depends on output of previous is applied for algorithm
+on prioritizing of execution of pipe processors.
+As long as the very right (last in list) pipe has input items to process it executes it's data processors.
+If this pipe has free processor that is not loaded with data then the processors from previous pipe are executed
+to produce an input data for next pipe.
+This is recursively applied for all chain of pipes.
+
+Here is parallel grep implemented in 40 lines of perl code:
+  
   use List::More qw(part);
   my @dirs = '.';
   my @files;
@@ -681,7 +712,7 @@ This feature is considered as experimental. Use it at your own risk.
             my @lines;
             while (<$fh>) {
                 # line_number : line
-                push @lines,$. . ":" . $_ if m{hello};
+                push @lines,"$.:$_" if m{hello};
             }
             return [$file,\@lines];
         },
@@ -693,25 +724,6 @@ This feature is considered as experimental. Use it at your own risk.
     }
   );
   
-  pipeline is a common case of run.
-  
-  run $pipe_params
-  
-  is the same as
-  
-  pipeline $pipe_params
-  
-  But with pipeline you can create as many pipes as you want and run all of them in parallel.
-  And it works like in unix - input of next pipe is output from previous pipe.
-  You have to specify input for the first pipe explicitly.
-  If you don't specify input for next pipe it is assumed that it is output from previous pipe like in unix.
-  Also this assumption that input of next pipe depends on output of previous is applied for algorithm
-on prioritizing of execution of pipe processors.
-As long as the very right (last in list) pipe has input to process it executes it's processes.
-If this pipe has free processor the processors from previous pipe is executed to get input data.
-  This is recursively applied for all chain of pipes.
-  Well, recursive algorith usually is coded much shorter, so you can look at implementation.
-
 =head1 HOW parallel pipe (run) WORKS
 
 1) Main thread (parent) forks C<number_of_data_processors> of children for processing data.
