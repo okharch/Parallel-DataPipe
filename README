@@ -1,11 +1,10 @@
-Parallel-DataPipe version 0.08
+Parallel-DataPipe version 0.09
 =================================
 
 CPAN module Parallel::DataPipe for parallel data processing pipe and pipeline
 
 Multiplatform implementation: tests are passed for OpenBSD, MSWin32, Freebsd, Cygwin, Linux
 
-Thanks to Rocco Caputo's IO::Pipely::pipely where I got the idea how to communicate using mutliplatform pipes.
 
 INSTALLATION
 
