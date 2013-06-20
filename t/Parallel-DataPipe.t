@@ -286,7 +286,7 @@ sub test_pipeline {
         {input=>\@queue,process=>sub {$_*2}},
         {process=>sub {$_*3}},
     );
-        
+
     ok(@processed==@data,"processed data length ok");
     ok(join(",",@processed) eq join(",",map $_*6,@data),"processed data values ok");
     ok(zombies() == 0,'no zombies');

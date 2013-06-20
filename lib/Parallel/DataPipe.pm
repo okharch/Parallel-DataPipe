@@ -1,7 +1,10 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.09';
-use 5.008; # Perl::MinimumVersion says that
+our $VERSION='0.10';
+# perl5.12.5 -Ilib t/Parallel-DataPipe.t ;echo $?
+# says 141
+# still have no idea how to fix that (SIG{PIPE}?)
+use 5.14.2;
 
 use strict;
 use warnings;
@@ -20,7 +23,6 @@ sub run {
     }
 
     my $conveyor = Parallel::DataPipe->new($param);
-    $SIG{ALRM} = 'IGNORE';
     # data processing conveyor.
     while ($conveyor->load_data) {
         $conveyor->receive_and_merge_data unless $conveyor->free_processors;
@@ -43,7 +45,7 @@ sub pipeline {
     my $default_input;
     for my $param (@_) {
         unless (exists $param->{input}) {
-            $param->{input} = $default_input or die "You have to specify input for the first pipe";            
+            $param->{input} = $default_input or die "You have to specify input for the first pipe";
         }
         my $pipe = $class->new($param);
         if (ref($pipe->{output}) eq 'ARRAY') {
@@ -55,7 +57,7 @@ sub pipeline {
     my $result = $pipes[$#pipes]->{output};
     # @pipes=() kills parent
     # as well as its implicit destroying
-    # destroy pipes one by one if you want to survive!!! 
+    # destroy pipes one by one if you want to survive!!!
     undef $_ for @pipes;
     return unless defined(wantarray);
     return unless $result;
@@ -661,16 +663,16 @@ Note: run has also undocumented prototype for calling (\@\$) i.e.
 This feature is experimental and can be removed. Use it at your own risk.
 
 =head2 pipeline
-  
+
 pipeline() is a chain of run() (parallel data pipes) executed in parallel
 and input for next pipe is implicitly got from previous one.
-  
+
   run {input => \@queue, process => \&process, output => \@out}
-  
+
 is the same as
-  
+
   pipeline {input => \@queue, process => \&process, output => \@out}
-  
+
 But with pipeline you can create chain of connected pipes and run all of them in parallel
 like it's done in unix with processes pipeline.
 
@@ -679,7 +681,7 @@ like it's done in unix with processes pipeline.
     { process => \&process2},
     { process => \&process3, output => sub {print "$_\n";} },
   );
-  
+
 And it works like in unix - input of next pipe is (implicitly) set to output from previous pipe.
 You have to specify input for the first pipe explicitly (see example of parallel grep 'hello' below ).
 
@@ -692,13 +694,13 @@ to produce an input data for next pipe.
 This is recursively applied for all chain of pipes.
 
 Here is parallel grep implemented in 40 lines of perl code:
-  
+
   use List::More qw(part);
   my @dirs = '.';
   my @files;
   pipeline(
     # this pipe looks (recursively) for all files in specified @dirs
-    { 
+    {
         input => \@dirs,
         process => sub {
             my ($files,$dirs) = part -d?1:0,glob("$_/*");
@@ -730,7 +732,7 @@ Here is parallel grep implemented in 40 lines of perl code:
         }
     }
   );
-  
+
 =head1 HOW parallel pipe (run) WORKS
 
 1) Main thread (parent) forks C<number_of_data_processors> of children for processing data.

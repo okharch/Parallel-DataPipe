@@ -1,15 +1,17 @@
 Revision history for Perl extension Parallel::DataPipe.
-0.09  Thu Jun  20
+0.10  Thu Jun 20
+    - Increased min version of Perl to 5.14.2
+0.09  Thu Jun 20
     Merging changes from pull request by Shlomi Fish. Thank you, Shlomi.
     - Add t/pod.t and fix broken POD. (-- Shlomi Fish)
     - Add t/style-trailing-space.t to check for trailing space.
 
 0.08  Thu May 23
     - pipeline() documentation was slightly improved
-    
+
 0.07  Mon May  22
     - pipeline - algorithm of n parallel unix-like pipes implemented, see pipeline() doc
-    
+
 0.06  Mon May  20
     - The interface and behaviour of Parallel::DataPipe::run has been changed.
       For details, see:
