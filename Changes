@@ -1,27 +1,42 @@
 Revision history for Perl extension Parallel::DataPipe.
-0.08  Mon May  23
+0.09  Thu Jun  20
+    Merging changes from pull request by Shlomi Fish. Thank you, Shlomi.
+    - Add t/pod.t and fix broken POD. (-- Shlomi Fish)
+    - Add t/style-trailing-space.t to check for trailing space.
+
+0.08  Thu May 23
     - pipeline() documentation was slightly improved
+    
 0.07  Mon May  22
     - pipeline - algorithm of n parallel unix-like pipes implemented, see pipeline() doc
     
 0.06  Mon May  20
-    - interface and behaviour of Parallel::DataPipe::run has been changed. See
-    https://github.com/okharch/Parallel-DataPipe/commit/d99a9cb2078e32dfb37d80e24c335f0006184639
-    for details
+    - The interface and behaviour of Parallel::DataPipe::run has been changed.
+      For details, see:
+      https://github.com/okharch/Parallel-DataPipe/commit/d99a9cb2078e32dfb37d80e24c335f0006184639
+
 0.05  Sun May  19
-    - minor fix to PIPE_MAX_CHUNK_SIZE: be pessimistic unless good news for the platform.
-      16Kb for Linux & Cygwin, 1Kb for others. This allowed test to be passed for OpenBSD
+    - Minor fix for PIPE_MAX_CHUNK_SIZE: be pessimistic unless the platform
+      has good news for us.
+      16KB for Linux & Cygwin, 1KB for others. This allowed the tests to
+      pass on OpenBSD.
+
 0.04  Sat May  18
-    - at last! multiplatform implementation. tests are passed for MSWin32, Freebsd, Cygwin, Linux
+    - At last! multiplatform implementation. Tests are passing for MSWin32,
+      Freebsd, Cygwin, Linux
+
 0.03  Tue May  14 2013
-    - fix for #85289: tests hang on Windows. added test if pipes work as intented [okharch]
-    
+    - Fix for #85289: tests hang on Windows. Added a test to test if
+      pipes work as intented [okharch]
+
 0.02  Mon May  13 2013
-	- override SIG{TERM} for child to exit silently from data processors
-	- get rid of single-thread logic
-	- fixup for input_iterator returned value so it can return  and 0 for processing. only undef is considered as EOF
+	- Override SIG{TERM} for child to exit silently from data processors
+	- Get rid of single-thread logic
+    - Fixup for input_iterator’s returned value, so it can return an
+      empty string ('') and 0 for processing. Only undef is considered
+      as EOF .
 	- $_ is also passed as parameter (@_ or $_[0]) to the process_data closure
-	
+
 0.01  Wed May  8 07:44:03 2013
-	- original version; created by h2xs 1.23 with options
+	- Original version; created by h2xs 1.23 with options
 		-AX Parallel::DataPipe

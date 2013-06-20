@@ -36,9 +36,9 @@ WriteMakefile(
     PREREQ_PM         => {
         # e.g., Module::Name => 1.1
         #'IO::Pipely' => '0.002',
-    }, 
+    },
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
-     
+
       (ABSTRACT => 'Parallel Data Processing Conveyor',
        AUTHOR         => 'Oleksandr Kharchenko <okharch@okharch.com>') : ()),
 );

@@ -58,7 +58,7 @@ sub test_storable {
         freeze => \&Storable::nfreeze,
         thaw => \&Storable::thaw,
     };
-    
+
     ok(@data==@processed_data,'length of processed Storable data');
     @processed_data = map $_->[0], @processed_data;
     ok(join(",",map $_*2, @data) eq join(",",sort {$a <=> $b} @processed_data),"processed Storable data values");
@@ -77,7 +77,7 @@ sub test_scalar_values {
         input => \@data,
         process => sub { $_*2 },
     };
-    
+
     ok(@data==0,'length of input queue is empty');
     ok(@cdata==@processed_data,'length of processed scalar data');
     ok(join(",",map $_*2, @cdata) eq join(",",sort {$a <=> $b} @processed_data),"processed scalar data values");
@@ -88,14 +88,14 @@ sub test_scalar_values {
 sub test_serialized_data {
     print "\n***Testing if conveyor works ok with serizalized data...\n";
     # test pipe for serialized data
-    my @data = map [$_],1..10; 
+    my @data = map [$_],1..10;
     my @processed_data = Parallel::DataPipe::run(
         [@data],
         sub {
             [$_->[0]*2];
         },
     );
-    
+
     ok(@data==@processed_data,'length of processed serialized data');
     ok(join(",",map $_->[0]*2, @data) eq join(",",sort {$a <=> $b} map $_->[0],@processed_data),"processed serialized data values");
     ok(zombies() == 0,'no zombies');
@@ -118,7 +118,7 @@ sub test_old_behaviour {
 
 sub test_large_data_receive {
     #test large data
-    my $large_data_size = max_buf_size(32); 
+    my $large_data_size = max_buf_size(32);
     my $big = sprintf("big(%dK)",$large_data_size/$kb);
     print "\n***Testing if data processor receives ok $big buffer wrapped into [$n_items] array...\n";
     my $large_data_buf = sprintf("%${large_data_size}s"," ");
@@ -208,11 +208,11 @@ sub test_large_data_process {
 
 sub test_processor_number {
     print "\n***Testing if conveyor works ok big($number_of_data_processors) number of data processors...\n";
-    
+
     # test number_of_data_processors
     my $n;
     my %forks; # calculates counter of items processed by each data processor, so keys will be pid of data processor
-    
+
     my $data_item_per_thread = 4;
     $n=$number_of_data_processors*$data_item_per_thread;
     Parallel::DataPipe::run {
@@ -223,7 +223,7 @@ sub test_processor_number {
     };
     ok(keys(%forks) == $number_of_data_processors,"explicit number of data_processors($number_of_data_processors)- although it depends on implementation");
     ok(zombies() == 0,'no zombies');
-    
+
     return;
     # this test is not critical, so only warn
     my %processor_load;
@@ -233,7 +233,7 @@ sub test_processor_number {
 
 sub test_other_children_survive {
     print "\n***Fork children, then run DataPipe conveyor and looks if our children survives after it...\n";
-    
+
     # test other chlidren survive and not block
     my $child = fork();
     if ($child == 0) {

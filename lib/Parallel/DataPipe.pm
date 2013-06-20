@@ -1,6 +1,6 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.08';
+our $VERSION='0.09';
 use 5.008; # Perl::MinimumVersion says that
 
 use strict;
@@ -18,14 +18,15 @@ sub run {
     } else {
         $param = {input=>$input, process=>$map, output=>$output };
     }
-    
+
     my $conveyor = Parallel::DataPipe->new($param);
-    # data processing conveyor. 
+    $SIG{ALRM} = 'IGNORE';
+    # data processing conveyor.
     while ($conveyor->load_data) {
         $conveyor->receive_and_merge_data unless $conveyor->free_processors;
     }
     $conveyor->receive_and_merge_data() while $conveyor->busy_processors;
-    
+
     return unless defined wantarray;
     my $result = $conveyor->{output} || [];
     return wantarray? @$result : $result;
@@ -116,7 +117,7 @@ sub set_output_iterator {
         $self->{output} = $queue;
         $output_iterator = sub {push @$queue,$_};
     }
-    $self->{output_iterator} = $output_iterator;    
+    $self->{output_iterator} = $output_iterator;
 }
 
 # loads all free processor with data from input
@@ -136,7 +137,7 @@ sub load_data {
 }
 
 # this should work with Windows NT or if user explicitly set that
-my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS}; 
+my $number_of_cpu_cores = $ENV{NUMBER_OF_PROCESSORS};
 sub number_of_cpu_cores {
     #$number_of_cpu_cores = $_[0] if @_; # setter
     return $number_of_cpu_cores if $number_of_cpu_cores;
@@ -168,7 +169,7 @@ sub init_serializer {
         $self->{freeze} = $freeze;
         $self->{thaw} = $thaw;
     } else {
-        # try cereal        
+        # try cereal
         eval q{
             use Sereal qw(encode_sereal decode_sereal);
             $self->{freeze} = \&encode_sereal;
@@ -182,7 +183,7 @@ sub init_serializer {
             $self->{thaw} = \&Storable::thaw;
             1;
         };
-        
+
     }
 }
 
@@ -190,7 +191,7 @@ sub init_serializer {
 # this subroutine reads data from pipe and converts it to perl reference
 # or scalar - if size is negative
 # it always expects size of frozen scalar so it know how many it should read
-# to feed thaw 
+# to feed thaw
 sub _get_data {
     my ($self,$fh) = @_;
     my ($data_size,$data);
@@ -205,24 +206,24 @@ sub _get_data {
         # allocate all the buffer for $data beforehand
         $data = sprintf("%${length}s","");
         while ($offset < $length) {
-            my $chunk_size = min(PIPE_MAX_CHUNK_SIZE,$length-$offset);        
+            my $chunk_size = min(PIPE_MAX_CHUNK_SIZE,$length-$offset);
             $fh->sysread(my $buf,$chunk_size);
-            # use lvalue form of substr to copy data in preallocated buffer        
+            # use lvalue form of substr to copy data in preallocated buffer
             substr($data,$offset,$chunk_size) = $buf;
             $offset += $chunk_size;
         }
-        $data = $self->thaw($data) if $data_size<0; 
+        $data = $self->thaw($data) if $data_size<0;
     }
     return $data;
 }
 
-# this subroutine serialize data reference. otherwise 
+# this subroutine serialize data reference. otherwise
 # it puts negative size of scalar and scalar itself to pipe.
 sub _put_data {
     my ($self,$fh,$data) = @_;
     unless (defined($data)) {
         $fh->syswrite(pack("l", _EOF_));
-        return;        
+        return;
     }
     my $length = length($data);
     if (ref($data)) {
@@ -233,7 +234,7 @@ sub _put_data {
     $length = abs($length);
     my $offset = 0;
     while ($offset < $length) {
-        my $chunk_size = min(PIPE_MAX_CHUNK_SIZE,$length-$offset);        
+        my $chunk_size = min(PIPE_MAX_CHUNK_SIZE,$length-$offset);
         $fh->syswrite(substr($data,$offset,$chunk_size));
         $offset += $chunk_size;
     }
@@ -261,11 +262,11 @@ sub _fork_data_processor {
 
 sub _create_data_processor {
     my ($self,$process_data_callback) = @_;
-    
+
     # parent <=> child pipes
     my ($parent_read, $parent_write) = pipely();
     my ($child_read, $child_write) = pipely();
- 
+
     my $data_processor = sub {
         local $_ = $self->_get_data($child_read);
         unless (defined($_)) {
@@ -274,12 +275,12 @@ sub _create_data_processor {
         $_ = $process_data_callback->($_);
         $self->_put_data($parent_write,$_);
     };
-    
-    # return data processor record 
+
+    # return data processor record
     return {
         pid => _fork_data_processor($data_processor),  # needed to kill processor when there is no more data to process
-        child_write => $child_write,                 # pipe to write raw data from main to data processor 
-        parent_read => $parent_read,                 # pipe to write raw data from main to data processor 
+        child_write => $child_write,                 # pipe to write raw data from main to data processor
+        parent_read => $parent_read,                 # pipe to write raw data from main to data processor
     };
 }
 
@@ -313,7 +314,7 @@ sub busy_processors {
 
 sub free_processors {
     my $self = shift;
-    return grep !$_->{busy}, @{$self->{processors}};    
+    return grep !$_->{busy}, @{$self->{processors}};
 }
 
 sub receive_and_merge_data {
@@ -327,7 +328,7 @@ sub receive_and_merge_data {
     $processor->{busy} = undef; # make processor free
     $self->output_iterator($_,$processor->{item_number});
 }
-    
+
 sub _kill_data_processors {
     my ($self) = @_;
     my $processors = $self->{processors};
@@ -343,21 +344,21 @@ sub _kill_data_processors {
 }
 
 sub new {
-    my ($class, $param) = @_;	
+    my ($class, $param) = @_;
 	my $self = {};
     bless $self,$class;
     $self->set_input_iterator($param);
     # item_number for merge implementation
-    $self->{item_number} = 0;    
+    $self->{item_number} = 0;
     # check if user want to use alternative serialisation routines
-    $self->init_serializer($param);    
+    $self->init_serializer($param);
     # @$processors is array with data processor info
     $self->{processors} = $self->create_data_processors($param);
     # data_merge is sub which merge all processed data inside parent thread
-    # it is called each time after process_data returns some new portion of data    
+    # it is called each time after process_data returns some new portion of data
     $self->set_output_iterator($param);
     my $not_supported = join ", ", keys %$param;
-    die "Parameters are redundant or not supported:". $not_supported if $not_supported;	
+    die "Parameters are redundant or not supported:". $not_supported if $not_supported;
 	return $self;
 }
 
@@ -367,7 +368,9 @@ sub DESTROY {
     #semctl($self->{sem_id},0,IPC_RMID,0);
 }
 
-=comment Why I copied IO::Pipely::pipely instead of use IO::Pipely qw(pipely)?
+=begin comment
+
+Why I copied IO::Pipely::pipely instead of use IO::Pipely qw(pipely)?
 1. Do not depend on installation of additional module
 2. I don't know (yet) how to win race condition:
 A) In Makefile.PL I would to check if fork & pipe works on the platform before creating Makefile.
@@ -378,7 +381,11 @@ For now I decided just copy code for pipely into this module.
 Then if I know how do win that race condition I will get rid of this code and
 will use IO::Pipely qw(pipely) instead and
 will add dependency on it.
+
+=end comment
+
 =cut
+
 # IO::Pipely is copyright 2000-2012 by Rocco Caputo.
 use Symbol qw(gensym);
 use IO::Socket qw(
@@ -539,7 +546,7 @@ sub _try_oneway_type {
 
 =head1 NAME
 
-C<Parallel::DataPipe> - parallel data processing conveyor 
+C<Parallel::DataPipe> - parallel data processing conveyor
 
 =encoding utf-8
 
@@ -552,7 +559,7 @@ C<Parallel::DataPipe> - parallel data processing conveyor
         number_of_data_processors => 100,
         output => sub { print "$_\n" },
     };
-    
+
 
 =head1 DESCRIPTION
 
@@ -605,7 +612,7 @@ B<input> - reference to array or subroutine which should return data item to be 
     This behaviour has been introduced in 0.06.
     Also you can use these aliases:
     input_iterator, queue, data
-    
+
     Note: in version before 0.06 it was input_iterator and if reffered to array it remained untouched.
     while new behaviour is to treat this parameter like a queue.
     0.06 support old behaviour only for input_iterator,
@@ -634,11 +641,11 @@ B<number_of_data_processors> - (optional) number of parallel data processors. if
     If this environment variable is not found it looks to /proc/cpuinfo which is availbale under Unix env.
     It makes sense to have explicit C<number_of_data_processors>
     which possibly is greater then cpu cores number
-    if you are to use all slave DB servers in your environment 
+    if you are to use all slave DB servers in your environment
     and making query to DB servers takes more time then processing returned data.
     Otherwise it's optimal to have C<number_of_data_processors> equal to number of cpu cores.
 
-B<freeze>, B<thaw> - you can use alternative serializer. 
+B<freeze>, B<thaw> - you can use alternative serializer.
     for example if you know that you are working with array of words (0..65535) you can use
     freeze => sub {pack('S*',@{$_[0]})} and thaw => sub {[unpack('S*',$_[0])]}
     which will reduce the amount of bytes exchanged between processes.
@@ -647,11 +654,11 @@ B<freeze>, B<thaw> - you can use alternative serializer.
     It uses encode_sereal and decode_sereal if Sereal module is found.
     Otherwise it use Storable freeze and thaw.
 
-Note: run can also be called like this
-    
+Note: run has also undocumented prototype for calling (\@\$) i.e.
+
     my @x2 = Parallel::DataPipe::run([1..100],sub {$_*2});
-    
-This feature is considered as experimental. Use it at your own risk.
+
+This feature is experimental and can be removed. Use it at your own risk.
 
 =head2 pipeline
   
@@ -748,7 +755,7 @@ and starts loop 2) again.
 Note:
  If C<input_iterator> or <process_data> returns reference, it serialize/deserialize data before/after pipe.
  That way you have full control whether data will be serialized on IPC.
- 
+
 =head1 SEE ALSO
 
 L<fork|http://perldoc.perl.org/functions/fork.html>
@@ -769,7 +776,7 @@ Only core modules are used.
 
 if found it uses Sereal module for serialization instead of Storable as the former is more efficient.
 
-=head1 BUGS 
+=head1 BUGS
 
 For all bugs please send an email to okharch@gmail.com.
 
