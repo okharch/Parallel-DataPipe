@@ -763,6 +763,10 @@ L<IO::Pipely> - pipes that work almost everywhere
 
 L<POE> - portable multitasking and networking framework for any event loop
 
+L<forks>
+
+L<threads>
+
 =head1 DEPENDENCIES
 
 Only core modules are used.
