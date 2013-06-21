@@ -1,11 +1,7 @@
 package Parallel::DataPipe;
 
-our $VERSION='0.10';
-# perl5.12.5 -Ilib t/Parallel-DataPipe.t ;echo $?
-# says 141
-# still have no idea how to fix that (SIG{PIPE}?)
-use 5.14.2;
-
+our $VERSION='0.11';
+use 5.8.0;
 use strict;
 use warnings;
 use IO::Select;
@@ -21,17 +17,7 @@ sub run {
     } else {
         $param = {input=>$input, process=>$map, output=>$output };
     }
-
-    my $conveyor = Parallel::DataPipe->new($param);
-    # data processing conveyor.
-    while ($conveyor->load_data) {
-        $conveyor->receive_and_merge_data unless $conveyor->free_processors;
-    }
-    $conveyor->receive_and_merge_data() while $conveyor->busy_processors;
-
-    return unless defined wantarray;
-    my $result = $conveyor->{output} || [];
-    return wantarray? @$result : $result;
+    pipeline($param);
 }
 
 sub pipeline {
@@ -338,16 +324,16 @@ sub _kill_data_processors {
     my %pid_to_wait = map {$_=>undef} @pid_to_kill;
     # put undef to input of data_processor - they know it's time to exit
     $self->_put_data($_->{child_write}) for @$processors;
-    while (keys %pid_to_wait) {
+    while (@pid_to_kill) {
         my $pid = wait;
-        last if $pid == -1;
         delete $pid_to_wait{$pid};
+        @pid_to_kill = keys %pid_to_wait;
     }
 }
 
 sub new {
     my ($class, $param) = @_;
-	my $self = {};
+	my $self = {mypid=>$$};
     bless $self,$class;
     $self->set_input_iterator($param);
     # item_number for merge implementation
@@ -366,6 +352,7 @@ sub new {
 
 sub DESTROY {
 	my $self = shift;
+    return unless $self->{mypid} == $$;
     $self->_kill_data_processors;
     #semctl($self->{sem_id},0,IPC_RMID,0);
 }

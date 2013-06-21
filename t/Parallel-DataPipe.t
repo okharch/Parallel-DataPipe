@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 26;
+use Test::More tests => 24;
 use Time::HiRes qw(time);
 
 BEGIN {
@@ -23,7 +23,7 @@ my $n_items = 4; # number of large item to process
 
 $\="\n";
 
-test_old_behaviour();
+#test_old_behaviour();
 test_serialized_data();
 test_storable(); # test with standard serializer
 test_scalar_values();
@@ -102,8 +102,8 @@ sub test_serialized_data {
 }
 
 sub test_old_behaviour {
-    my @data = 1..100;
-    print "\n*** Test if input_iterator as array ref still has old behaviour...\n";
+    my @data = 1..1;
+    print "\n*** Test if input iterator as array ref still has old behaviour...\n";
     my @processed = Parallel::DataPipe::run( {
         input_iterator => \@data,
         process_data => sub {$_},
@@ -158,7 +158,7 @@ sub test_large_data_send {
     my $n = $n_items;
     my $time = time();
     Parallel::DataPipe::run {
-        input_iterator => sub {$n-- > 0||undef },
+        input => sub {$n-- > 0||undef },
         process_data => sub { [$large_data_buf] },
         number_of_data_processors => 3,
         merge_data => sub { push @processed_data, $_->[0] eq $large_data_buf?1:0 },
@@ -187,7 +187,7 @@ sub test_large_data_process {
     my $time = time();
     my $n = $n_items;
     Parallel::DataPipe::run {
-        input_iterator => sub {$n-- > 0?[$large_data_buf]:undef},
+        input => sub {$n-- > 0?[$large_data_buf]:undef},
         process_data => sub { $_->[0] =~ s/!{8}/        /;[$_->[0]] },
         number_of_data_processors => 4,
         merge_data => sub { push @processed_data, $_->[0] =~ m{^ {8} }?1:0 },
@@ -216,7 +216,7 @@ sub test_processor_number {
     my $data_item_per_thread = 4;
     $n=$number_of_data_processors*$data_item_per_thread;
     Parallel::DataPipe::run {
-        input_iterator => sub { $n-- > 0|| undef },
+        input => sub { $n-- > 0|| undef },
         process_data => sub {$$},
         number_of_data_processors => $number_of_data_processors,
         merge_data => sub {$forks{$_}++},
@@ -246,7 +246,7 @@ sub test_other_children_survive {
     }
     my $n=$number_of_data_processors*10;
     Parallel::DataPipe::run {
-        input_iterator => sub { $n-- > 0|| undef },
+        input => sub { $n-- > 0|| undef },
         process_data => sub {$$},
         number_of_data_processors => $number_of_data_processors,
         merge_data => sub {},
